@@ -1,0 +1,11 @@
+[package]
+name = "tessera-ir"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Intermediate Representation and AST for Tessera tile-based compute"
+
+[dependencies]
+thiserror = "2.0"
