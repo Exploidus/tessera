@@ -1,0 +1,11 @@
+[package]
+name = "tessera-backend-spirv"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Vulkan SPIR-V compute shader generator for vendor-agnostic GPUs"
+
+[dependencies]
+tessera-ir = { path = "../tessera-ir", version = "0.1.0" }

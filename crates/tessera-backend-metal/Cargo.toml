@@ -1,0 +1,11 @@
+[package]
+name = "tessera-backend-metal"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Apple Silicon Metal Shading Language (MSL) code generator for Tessera"
+
+[dependencies]
+tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
