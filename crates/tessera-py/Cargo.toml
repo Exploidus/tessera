@@ -1,0 +1,21 @@
+[package]
+name = "tessera-py"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Python bindings for Tessera tile-based GPU compute engine"
+
+[lib]
+name = "tessera"
+crate-type = ["cdylib"]
+test = false
+
+[dependencies]
+tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
+tessera-backend-ptx = { path = "../tessera-backend-ptx", version = "0.1.0" }
+tessera-backend-spirv = { path = "../tessera-backend-spirv", version = "0.1.0" }
+tessera-backend-metal = { path = "../tessera-backend-metal", version = "0.1.0" }
+tessera-runtime = { path = "../tessera-runtime", version = "0.1.0" }
+pyo3 = { version = "0.23", features = ["extension-module"] }
