@@ -1,0 +1,28 @@
+[package]
+name = "tessera"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tile-based GPU compute engine and JIT compiler"
+default-run = "tessera"
+
+[dependencies]
+tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
+tessera-backend-ptx = { path = "../tessera-backend-ptx", version = "0.1.0" }
+tessera-backend-spirv = { path = "../tessera-backend-spirv", version = "0.1.0" }
+tessera-backend-metal = { path = "../tessera-backend-metal", version = "0.1.0" }
+tessera-runtime = { path = "../tessera-runtime", version = "0.1.0" }
+
+[[bin]]
+name = "tessera"
+path = "src/main.rs"
+
+[[bin]]
+name = "eval_suite"
+path = "src/bin/eval_suite.rs"
+
+[[bin]]
+name = "wmma_bench"
+path = "src/bin/wmma_bench.rs"
