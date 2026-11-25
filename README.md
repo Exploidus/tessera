@@ -12,7 +12,7 @@ Tessera compiles 2D/3D tile operations directly to bare-metal GPU targets (NVIDI
 - `crates/tessera-backend-metal`: Apple Silicon Metal Shading Language (MSL) code generator.
 - `crates/tessera-runtime`: Dynamic driver loader (`nvcuda.dll` / `libcuda.so`), JIT engine, async streams, multi-GPU collectives, and hardware autotuner.
 - `crates/tessera-py`: Python C-extension bindings via PyO3.
-- `crates/tessera`: Native CLI runner and multi-scale benchmark suites.
+- `crates/tessera`: Native CLI runner (`tessera-gpu`) and multi-scale benchmark suites.
 - `python/tessera_torch.py`: PyTorch Dynamo compilation backend integration.
 
 ## Python Example
@@ -52,7 +52,7 @@ Requirements: Rust toolchain (1.80+) and an NVIDIA driver (any recent driver wit
 cargo build --workspace --release
 
 # Run native GEMM test
-cargo run -p tessera --release
+cargo run -p tessera-gpu --release
 
 # Run Tensor Core WMMA benchmark
 cargo run --bin wmma_bench --release

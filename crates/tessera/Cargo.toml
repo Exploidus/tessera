@@ -1,5 +1,5 @@
 [package]
-name = "tessera"
+name = "tessera-gpu"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "Tile-based GPU compute engine and JIT compiler"
 default-run = "tessera"
+
+[lib]
+name = "tessera"
+path = "src/lib.rs"
 
 [dependencies]
 tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
