@@ -10,27 +10,41 @@ jobs:
   publish:
     name: Publish Crates
     runs-on: ubuntu-latest
-    if: "${{ secrets.CARGO_REGISTRY_TOKEN != '' }}"
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify token presence
+        id: token_check
+        run: |
+          if [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "CARGO_REGISTRY_TOKEN secret is not configured in repository. Skipping publishing."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Rust toolchain
+        if: steps.token_check.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Publish tessera-ir
+        if: steps.token_check.outputs.skip != 'true'
         run: cargo publish -p tessera-ir --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish tessera-backend-ptx
+        if: steps.token_check.outputs.skip != 'true'
         run: cargo publish -p tessera-backend-ptx --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish tessera-backend-spirv
+        if: steps.token_check.outputs.skip != 'true'
         run: cargo publish -p tessera-backend-spirv --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish tessera-backend-metal
+        if: steps.token_check.outputs.skip != 'true'
         run: cargo publish -p tessera-backend-metal --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish tessera-runtime
+        if: steps.token_check.outputs.skip != 'true'
         run: cargo publish -p tessera-runtime --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish tessera
+        if: steps.token_check.outputs.skip != 'true'
         run: cargo publish -p tessera --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
