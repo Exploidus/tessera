@@ -1,0 +1,33 @@
+Tessera Dual License (GNU AGPLv3 / Commercial)
+Copyright (c) 2026 Rahad Bhuiya. All rights reserved.
+
+Tessera is licensed under a dual-licensing business model:
+
+1. OPEN SOURCE LICENSE (GNU AGPLv3):
+   You may redistribute and/or modify this software under the terms of the
+   GNU Affero General Public License as published by the Free Software
+   Foundation, either version 3 of the License, or (at your option) any later
+   version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU Affero General Public License for more details.
+
+   Under the AGPLv3, if you run a modified version of this software or use it
+   as part of a network service or software package, the entire source code of
+   your application must be made available to everyone under the AGPLv3.
+
+2. COMMERCIAL PROPRIETARY LICENSE:
+   If your organization cannot comply with the copyleft obligations of the
+   GNU AGPLv3 (for example, you cannot or do not wish to open-source your
+   proprietary machine learning models, applications, or infrastructure),
+   a commercial proprietary license must be acquired from the copyright holder.
+
+   Commercial licensing provides:
+   - Exemption from all AGPLv3 copyleft and source code disclosure requirements
+   - Dedicated enterprise support, integration assistance, and tailored optimizations
+   - Permission to embed Tessera into closed-source commercial hardware, clouds, and applications
+
+   For commercial licensing inquiries, please contact:
+   Rahad Bhuiya <rahadbhuiya2021@gmail.com>

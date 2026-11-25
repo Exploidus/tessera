@@ -1,0 +1,23 @@
+[workspace]
+members = [
+    "crates/tessera-ir",
+    "crates/tessera-backend-ptx",
+    "crates/tessera-backend-spirv",
+    "crates/tessera-backend-metal",
+    "crates/tessera-runtime",
+    "crates/tessera-py",
+    "crates/tessera",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Rahad Bhuiya <rahadbhuiya2021@gmail.com>"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/Exploidus/tessera"
+homepage = "https://github.com/Exploidus/tessera"
+description = "Tile-based GPU compute engine and JIT compiler"
+readme = "README.md"
+keywords = ["gpu", "compiler", "ptx", "vulkan", "deep-learning"]
+categories = ["compilers", "hardware-support", "science"]
