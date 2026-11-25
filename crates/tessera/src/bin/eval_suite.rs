@@ -88,7 +88,9 @@ fn run_eval(
             &mut k_a as *mut _ as *mut c_void,
         ];
 
-        unsafe { kernel.launch(grid, block, 0, &mut args)?; }
+        unsafe {
+            kernel.launch(grid, block, 0, &mut args)?;
+        }
         gpu.sync()?;
         d_c.download(&mut h_c)?;
 
@@ -137,12 +139,16 @@ fn run_eval(
     ];
 
     // Warm-up
-    unsafe { kernel.launch(grid, block, 0, &mut args)?; }
+    unsafe {
+        kernel.launch(grid, block, 0, &mut args)?;
+    }
     gpu.sync()?;
 
     let start = Instant::now();
     for _ in 0..iterations {
-        unsafe { kernel.launch(grid, block, 0, &mut args)?; }
+        unsafe {
+            kernel.launch(grid, block, 0, &mut args)?;
+        }
     }
     gpu.sync()?;
     let avg_duration = start.elapsed() / iterations;
@@ -163,7 +169,10 @@ fn run_eval(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu = GpuContext::init()?;
-    println!("device: {} (driver: {})", gpu.device_name, gpu.driver_version);
+    println!(
+        "device: {} (driver: {})",
+        gpu.device_name, gpu.driver_version
+    );
 
     let test_matrix = [
         (64, 50, Activation::None, "Linear"),
@@ -189,8 +198,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!();
-    println!("| {:<10} | {:<10} | {:<9} | {:<12} | {:<10} | {:<10} |",
-        "Matrix", "Kernel", "VRAM (MB)", "Latency", "TFLOPS", "Accuracy");
+    println!(
+        "| {:<10} | {:<10} | {:<9} | {:<12} | {:<10} | {:<10} |",
+        "Matrix", "Kernel", "VRAM (MB)", "Latency", "TFLOPS", "Accuracy"
+    );
     println!("|:-----------|:-----------|:----------|:-------------|:-----------|:-----------|");
 
     for r in &results {
@@ -204,8 +215,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "Verified".to_string()
         };
-        println!("| {:<10} | {:<10} | {:>8.2}  | {:>11} | {:>9.2}  | {:>10} |",
-            r.dimension, r.activation, r.memory_mb, lat_str, r.tflops, acc_str);
+        println!(
+            "| {:<10} | {:<10} | {:>8.2}  | {:>11} | {:>9.2}  | {:>10} |",
+            r.dimension, r.activation, r.memory_mb, lat_str, r.tflops, acc_str
+        );
     }
 
     Ok(())

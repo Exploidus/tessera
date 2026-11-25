@@ -34,7 +34,6 @@ impl Default for Autotuner {
 }
 
 impl Autotuner {
-
     pub fn find_optimal(
         &self,
         gpu: &GpuContext,
@@ -141,13 +140,17 @@ impl Autotuner {
             ];
 
             // Warm-up
-            unsafe { let _ = kernel.launch(grid, block, 0, &mut args); }
+            unsafe {
+                let _ = kernel.launch(grid, block, 0, &mut args);
+            }
             let _ = gpu.sync();
 
             let iters = 10;
             let start = Instant::now();
             for _ in 0..iters {
-                unsafe { let _ = kernel.launch(grid, block, 0, &mut args); }
+                unsafe {
+                    let _ = kernel.launch(grid, block, 0, &mut args);
+                }
             }
             let _ = gpu.sync();
             let avg_time = start.elapsed() / iters;

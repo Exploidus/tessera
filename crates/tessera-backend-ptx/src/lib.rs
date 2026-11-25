@@ -126,7 +126,10 @@ impl PtxGenerator {
         ptx.push_str(".maxntid 16, 16, 1\n");
         ptx.push_str("{\n");
 
-        ptx.push_str(&format!("    .shared .align 16 .b8 smem[{}];\n\n", total_smem_bytes));
+        ptx.push_str(&format!(
+            "    .shared .align 16 .b8 smem[{}];\n\n",
+            total_smem_bytes
+        ));
 
         ptx.push_str("    .reg .pred %p<16>;\n");
         ptx.push_str("    .reg .b32  %r<48>;\n");
@@ -216,11 +219,11 @@ impl PtxGenerator {
         ptx.push_str("$k_tile_done:\n\n");
 
         match config.activation {
-            Activation::None => {},
+            Activation::None => {}
             Activation::ReLU => {
                 ptx.push_str("    setp.lt.f32 %p12, %f0, 0f00000000;\n");
                 ptx.push_str("    @%p12 mov.f32 %f0, 0f00000000;\n\n");
-            },
+            }
             Activation::GELU => {
                 ptx.push_str("    mul.f32 %f5, %f0, 0f3FD9D89D;\n");
                 ptx.push_str("    neg.f32 %f5, %f5;\n");
@@ -228,13 +231,13 @@ impl PtxGenerator {
                 ptx.push_str("    add.f32 %f5, %f5, 0f3F800000;\n");
                 ptx.push_str("    rcp.approx.f32 %f5, %f5;\n");
                 ptx.push_str("    mul.f32 %f0, %f0, %f5;\n\n");
-            },
+            }
             Activation::Sigmoid => {
                 ptx.push_str("    neg.f32 %f5, %f0;\n");
                 ptx.push_str("    ex2.approx.f32 %f5, %f5;\n");
                 ptx.push_str("    add.f32 %f5, %f5, 0f3F800000;\n");
                 ptx.push_str("    rcp.approx.f32 %f0, %f5;\n\n");
-            },
+            }
             Activation::Swish => {
                 ptx.push_str("    neg.f32 %f5, %f0;\n");
                 ptx.push_str("    ex2.approx.f32 %f5, %f5;\n");
@@ -287,7 +290,7 @@ impl PtxGenerator {
         ptx.push_str("    ld.param.u32 %r1,  [param_hidden_dim];\n\n");
 
         ptx.push_str("    mov.u32 %r2, %ctaid.x;\n"); // row index
-        ptx.push_str("    mov.u32 %r3, %tid.x;\n");   // thread index
+        ptx.push_str("    mov.u32 %r3, %tid.x;\n"); // thread index
         ptx.push_str("    mul.lo.u32 %r4, %r2, %r1;\n"); // row offset
 
         // Pass 1: compute sum(x^2)
@@ -332,7 +335,10 @@ impl PtxGenerator {
         ptx.push_str("    ld.shared.f32 %f5, [%rd7];\n");
         ptx.push_str("    cvt.rn.f32.u32 %f6, %r1;\n");
         ptx.push_str("    div.rn.f32 %f5, %f5, %f6;\n");
-        ptx.push_str(&format!("    add.f32 %f5, %f5, 0f{:08X};\n", config.eps.to_bits()));
+        ptx.push_str(&format!(
+            "    add.f32 %f5, %f5, 0f{:08X};\n",
+            config.eps.to_bits()
+        ));
         ptx.push_str("    rsqrt.approx.f32 %f5, %f5;\n");
         ptx.push_str("    st.shared.f32 [%rd7], %f5;\n");
         ptx.push_str("    bar.sync 0;\n\n");
@@ -450,7 +456,7 @@ impl PtxGenerator {
         ptx.push_str("    ld.param.u32 %r2,  [param_head_dim];\n\n");
 
         ptx.push_str("    mov.u32 %r3, %ctaid.x;\n"); // q token index
-        ptx.push_str("    mov.u32 %r4, %tid.x;\n");   // dimension index (d < head_dim)
+        ptx.push_str("    mov.u32 %r4, %tid.x;\n"); // dimension index (d < head_dim)
         ptx.push_str("    setp.ge.u32 %p1, %r4, %r2;\n");
         ptx.push_str("    @%p1 bra $fa_exit;\n\n");
 

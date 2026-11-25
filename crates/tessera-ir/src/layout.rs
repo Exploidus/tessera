@@ -39,11 +39,26 @@ impl SwizzleConfig {
         let final_byte_off = "%swiz_byte_off";
         let temp_shift = "%swiz_shift";
 
-        asm.push_str(&format!("    shr.u32 {}, {}, {};\n", temp_shift, row_reg, self.shift));
-        asm.push_str(&format!("    and.b32 {}, {}, {};\n", temp_shift, temp_shift, self.mask));
-        asm.push_str(&format!("    xor.b32 {}, {}, {};\n", swizzled_col, col_reg, temp_shift));
-        asm.push_str(&format!("    mul.lo.u32 {}, {}, {};\n", row_offset, row_reg, stride_bytes));
-        asm.push_str(&format!("    mad.lo.u32 {}, {}, {}, {};\n", final_byte_off, swizzled_col, self.elem_bytes, row_offset));
+        asm.push_str(&format!(
+            "    shr.u32 {}, {}, {};\n",
+            temp_shift, row_reg, self.shift
+        ));
+        asm.push_str(&format!(
+            "    and.b32 {}, {}, {};\n",
+            temp_shift, temp_shift, self.mask
+        ));
+        asm.push_str(&format!(
+            "    xor.b32 {}, {}, {};\n",
+            swizzled_col, col_reg, temp_shift
+        ));
+        asm.push_str(&format!(
+            "    mul.lo.u32 {}, {}, {};\n",
+            row_offset, row_reg, stride_bytes
+        ));
+        asm.push_str(&format!(
+            "    mad.lo.u32 {}, {}, {}, {};\n",
+            final_byte_off, swizzled_col, self.elem_bytes, row_offset
+        ));
 
         (asm, final_byte_off.to_string())
     }

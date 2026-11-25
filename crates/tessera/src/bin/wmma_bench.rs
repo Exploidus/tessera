@@ -14,7 +14,11 @@ fn half_to_f32(h: u16) -> f32 {
         return (if s == 1 { -1.0 } else { 1.0 }) * (f as f32 / 1024.0) * 2.0f32.powi(-14);
     } else if e == 31 {
         return if f == 0 {
-            if s == 1 { f32::NEG_INFINITY } else { f32::INFINITY }
+            if s == 1 {
+                f32::NEG_INFINITY
+            } else {
+                f32::INFINITY
+            }
         } else {
             f32::NAN
         };
@@ -168,13 +172,17 @@ $k_done:
     ];
 
     // Warm-up
-    unsafe { kernel.launch(grid_dim, block_dim, 0, &mut args)?; }
+    unsafe {
+        kernel.launch(grid_dim, block_dim, 0, &mut args)?;
+    }
     gpu.sync()?;
 
     let iters = 50;
     let start = Instant::now();
     for _ in 0..iters {
-        unsafe { kernel.launch(grid_dim, block_dim, 0, &mut args)?; }
+        unsafe {
+            kernel.launch(grid_dim, block_dim, 0, &mut args)?;
+        }
     }
     gpu.sync()?;
     let duration = start.elapsed() / iters;
@@ -195,7 +203,12 @@ $k_done:
         let val_b = half_to_f32(h_b[p * (n as usize)]);
         cpu_c_0 += val_a * val_b;
     }
-    println!("C[0, 0] GPU: {:.4}, CPU: {:.4}, diff: {:.6}", h_c[0], cpu_c_0, (h_c[0] - cpu_c_0).abs());
+    println!(
+        "C[0, 0] GPU: {:.4}, CPU: {:.4}, diff: {:.6}",
+        h_c[0],
+        cpu_c_0,
+        (h_c[0] - cpu_c_0).abs()
+    );
 
     Ok(())
 }

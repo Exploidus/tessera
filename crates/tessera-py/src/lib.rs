@@ -109,8 +109,12 @@ fn matmul(
 
     let ptx_gen = PtxGenerator::new(86);
     let ptx_code = ptx_gen.emit_tiled_gemm(kernel_name, &config);
-    let module = gpu.load_ptx(&ptx_code).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let module = gpu
+        .load_ptx(&ptx_code)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let a_bytes = a.len() * 4;
     let b_bytes = b.len() * 4;
@@ -125,7 +129,11 @@ fn matmul(
     d_b.upload(&b).map_err(|e| PyRuntimeError::new_err(e))?;
 
     let tile_dim = 16u32;
-    let grid_dim = ((n + tile_dim - 1) / tile_dim, (m + tile_dim - 1) / tile_dim, 1u32);
+    let grid_dim = (
+        (n + tile_dim - 1) / tile_dim,
+        (m + tile_dim - 1) / tile_dim,
+        1u32,
+    );
     let block_dim = (tile_dim, tile_dim, 1u32);
 
     let mut param_a = d_a.dptr;
@@ -152,7 +160,8 @@ fn matmul(
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let mut c_host = vec![0.0f32; c_elements];
-    d_c.download(&mut c_host).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_c.download(&mut c_host)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     Ok(c_host)
 }
@@ -186,13 +195,23 @@ fn matmul_tensor_core(
 
     let ptx_gen = PtxGenerator::new(86);
     let ptx_code = ptx_gen.emit_tensor_core_gemm(kernel_name, &config);
-    let module = gpu.load_ptx(&ptx_code).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let module = gpu
+        .load_ptx(&ptx_code)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let c_elements = (m * n) as usize;
-    let d_a = gpu.alloc(a_u16.len() * 2).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_b = gpu.alloc(b_u16.len() * 2).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_c = gpu.alloc(c_elements * 4).map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_a = gpu
+        .alloc(a_u16.len() * 2)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_b = gpu
+        .alloc(b_u16.len() * 2)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_c = gpu
+        .alloc(c_elements * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     d_a.upload(&a_u16).map_err(|e| PyRuntimeError::new_err(e))?;
     d_b.upload(&b_u16).map_err(|e| PyRuntimeError::new_err(e))?;
@@ -224,7 +243,8 @@ fn matmul_tensor_core(
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let mut c_host = vec![0.0f32; c_elements];
-    d_c.download(&mut c_host).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_c.download(&mut c_host)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
     Ok(c_host)
 }
 
@@ -248,15 +268,25 @@ fn rmsnorm(
     let ptx_gen = PtxGenerator::new(86);
     let ptx = ptx_gen.emit_rmsnorm(kernel_name, &config);
     let module = gpu.load_ptx(&ptx).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let total = (num_rows * hidden_dim) as usize;
-    let d_in = gpu.alloc(total * 4).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_w = gpu.alloc((hidden_dim as usize) * 4).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_out = gpu.alloc(total * 4).map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_in = gpu
+        .alloc(total * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_w = gpu
+        .alloc((hidden_dim as usize) * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_out = gpu
+        .alloc(total * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
-    d_in.upload(&input).map_err(|e| PyRuntimeError::new_err(e))?;
-    d_w.upload(&weight).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_in.upload(&input)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    d_w.upload(&weight)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let grid = (num_rows, 1u32, 1u32);
     let block = (256u32, 1u32, 1u32);
@@ -274,12 +304,16 @@ fn rmsnorm(
     ];
 
     unsafe {
-        kernel.launch(grid, block, 0, &mut args).map_err(|e| PyRuntimeError::new_err(e))?;
+        kernel
+            .launch(grid, block, 0, &mut args)
+            .map_err(|e| PyRuntimeError::new_err(e))?;
     }
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let mut out_host = vec![0.0f32; total];
-    d_out.download(&mut out_host).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_out
+        .download(&mut out_host)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
     Ok(out_host)
 }
 
@@ -298,11 +332,19 @@ fn swiglu(_py: Python<'_>, x: Vec<f32>, gate: Vec<f32>) -> PyResult<Vec<f32>> {
     let ptx_gen = PtxGenerator::new(86);
     let ptx = ptx_gen.emit_swiglu(kernel_name, &config);
     let module = gpu.load_ptx(&ptx).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
-    let d_x = gpu.alloc(x.len() * 4).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_g = gpu.alloc(gate.len() * 4).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_out = gpu.alloc(x.len() * 4).map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_x = gpu
+        .alloc(x.len() * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_g = gpu
+        .alloc(gate.len() * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_out = gpu
+        .alloc(x.len() * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     d_x.upload(&x).map_err(|e| PyRuntimeError::new_err(e))?;
     d_g.upload(&gate).map_err(|e| PyRuntimeError::new_err(e))?;
@@ -323,12 +365,16 @@ fn swiglu(_py: Python<'_>, x: Vec<f32>, gate: Vec<f32>) -> PyResult<Vec<f32>> {
     ];
 
     unsafe {
-        kernel.launch(grid, block, 0, &mut args).map_err(|e| PyRuntimeError::new_err(e))?;
+        kernel
+            .launch(grid, block, 0, &mut args)
+            .map_err(|e| PyRuntimeError::new_err(e))?;
     }
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let mut out_host = vec![0.0f32; x.len()];
-    d_out.download(&mut out_host).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_out
+        .download(&mut out_host)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
     Ok(out_host)
 }
 
@@ -336,7 +382,9 @@ fn swiglu(_py: Python<'_>, x: Vec<f32>, gate: Vec<f32>) -> PyResult<Vec<f32>> {
 fn autotune_gemm(py: Python<'_>, m: usize, n: usize, k: usize) -> PyResult<Bound<'_, PyDict>> {
     let gpu = GpuContext::init().map_err(|e| PyRuntimeError::new_err(e))?;
     let tuner = Autotuner::new();
-    let profile = tuner.find_optimal(&gpu, m, n, k).map_err(|e| PyRuntimeError::new_err(e))?;
+    let profile = tuner
+        .find_optimal(&gpu, m, n, k)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let dict = PyDict::new(py);
     dict.set_item("use_tensor_cores", profile.config.use_tensor_cores)?;
@@ -348,14 +396,24 @@ fn autotune_gemm(py: Python<'_>, m: usize, n: usize, k: usize) -> PyResult<Bound
 }
 
 #[pyfunction]
-fn bench_gemm(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) -> PyResult<Bound<'_, PyDict>> {
+fn bench_gemm(
+    py: Python<'_>,
+    m: u32,
+    n: u32,
+    k: u32,
+    iterations: u32,
+) -> PyResult<Bound<'_, PyDict>> {
     let gpu = GpuContext::init().map_err(|e| PyRuntimeError::new_err(e))?;
     let kernel_name = "tessera_bench_gemm";
     let config = GemmConfig::default();
     let ptx_gen = PtxGenerator::new(86);
     let ptx_code = ptx_gen.emit_tiled_gemm(kernel_name, &config);
-    let module = gpu.load_ptx(&ptx_code).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let module = gpu
+        .load_ptx(&ptx_code)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let a_bytes = (m * k) as usize * 4;
     let b_bytes = (k * n) as usize * 4;
@@ -366,7 +424,11 @@ fn bench_gemm(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) -> PyResu
     let d_c = gpu.alloc(c_bytes).map_err(|e| PyRuntimeError::new_err(e))?;
 
     let tile_dim = 16u32;
-    let grid_dim = ((n + tile_dim - 1) / tile_dim, (m + tile_dim - 1) / tile_dim, 1u32);
+    let grid_dim = (
+        (n + tile_dim - 1) / tile_dim,
+        (m + tile_dim - 1) / tile_dim,
+        1u32,
+    );
     let block_dim = (tile_dim, tile_dim, 1u32);
 
     let mut param_a = d_a.dptr;
@@ -385,12 +447,20 @@ fn bench_gemm(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) -> PyResu
         &mut param_k as *mut _ as *mut c_void,
     ];
 
-    unsafe { kernel.launch(grid_dim, block_dim, 0, &mut args).map_err(|e| PyRuntimeError::new_err(e))?; }
+    unsafe {
+        kernel
+            .launch(grid_dim, block_dim, 0, &mut args)
+            .map_err(|e| PyRuntimeError::new_err(e))?;
+    }
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let start = Instant::now();
     for _ in 0..iterations {
-        unsafe { kernel.launch(grid_dim, block_dim, 0, &mut args).map_err(|e| PyRuntimeError::new_err(e))?; }
+        unsafe {
+            kernel
+                .launch(grid_dim, block_dim, 0, &mut args)
+                .map_err(|e| PyRuntimeError::new_err(e))?;
+        }
     }
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
     let avg_duration = start.elapsed() / iterations;
@@ -409,7 +479,13 @@ fn bench_gemm(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) -> PyResu
 }
 
 #[pyfunction]
-fn bench_tensor_core(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) -> PyResult<Bound<'_, PyDict>> {
+fn bench_tensor_core(
+    py: Python<'_>,
+    m: u32,
+    n: u32,
+    k: u32,
+    iterations: u32,
+) -> PyResult<Bound<'_, PyDict>> {
     let gpu = GpuContext::init().map_err(|e| PyRuntimeError::new_err(e))?;
     let kernel_name = "tessera_bench_wmma";
     let config = GemmConfig {
@@ -429,8 +505,12 @@ fn bench_tensor_core(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) ->
     };
     let ptx_gen = PtxGenerator::new(86);
     let ptx_code = ptx_gen.emit_tensor_core_gemm(kernel_name, &config);
-    let module = gpu.load_ptx(&ptx_code).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let module = gpu
+        .load_ptx(&ptx_code)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let a_bytes = (m * k) as usize * 2;
     let b_bytes = (k * n) as usize * 2;
@@ -459,12 +539,20 @@ fn bench_tensor_core(py: Python<'_>, m: u32, n: u32, k: u32, iterations: u32) ->
         &mut param_k as *mut _ as *mut c_void,
     ];
 
-    unsafe { kernel.launch(grid_dim, block_dim, 0, &mut args).map_err(|e| PyRuntimeError::new_err(e))?; }
+    unsafe {
+        kernel
+            .launch(grid_dim, block_dim, 0, &mut args)
+            .map_err(|e| PyRuntimeError::new_err(e))?;
+    }
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let start = Instant::now();
     for _ in 0..iterations {
-        unsafe { kernel.launch(grid_dim, block_dim, 0, &mut args).map_err(|e| PyRuntimeError::new_err(e))?; }
+        unsafe {
+            kernel
+                .launch(grid_dim, block_dim, 0, &mut args)
+                .map_err(|e| PyRuntimeError::new_err(e))?;
+        }
     }
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
     let avg_duration = start.elapsed() / iterations;
@@ -492,7 +580,9 @@ fn matmul_arbitrary(
     k: usize,
 ) -> PyResult<Vec<f32>> {
     if a.len() != m * k || b.len() != k * n {
-        return Err(PyRuntimeError::new_err("Matrix shape mismatch for arbitrary GEMM"));
+        return Err(PyRuntimeError::new_err(
+            "Matrix shape mismatch for arbitrary GEMM",
+        ));
     }
 
     let (padded_a, pad_m, pad_k) = tessera_runtime::pad_matrix_2d(&a, m, k, 16);
@@ -518,15 +608,27 @@ fn matmul_arbitrary(
 
     let ptx_gen = PtxGenerator::new(86);
     let ptx_code = ptx_gen.emit_tiled_gemm(kernel_name, &config);
-    let module = gpu.load_ptx(&ptx_code).map_err(|e| PyRuntimeError::new_err(e))?;
-    let kernel = module.get_kernel(kernel_name).map_err(|e| PyRuntimeError::new_err(e))?;
+    let module = gpu
+        .load_ptx(&ptx_code)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let kernel = module
+        .get_kernel(kernel_name)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
-    let d_a = gpu.alloc(padded_a.len() * 4).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_b = gpu.alloc(padded_b.len() * 4).map_err(|e| PyRuntimeError::new_err(e))?;
-    let d_c = gpu.alloc(pad_m * pad_n * 4).map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_a = gpu
+        .alloc(padded_a.len() * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_b = gpu
+        .alloc(padded_b.len() * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let d_c = gpu
+        .alloc(pad_m * pad_n * 4)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
-    d_a.upload(&padded_a).map_err(|e| PyRuntimeError::new_err(e))?;
-    d_b.upload(&padded_b).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_a.upload(&padded_a)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    d_b.upload(&padded_b)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let grid_dim = (pad_n as u32 / 16, pad_m as u32 / 16, 1u32);
     let block_dim = (16u32, 16u32, 1u32);
@@ -555,7 +657,8 @@ fn matmul_arbitrary(
     gpu.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
     let mut padded_c = vec![0.0f32; pad_m * pad_n];
-    d_c.download(&mut padded_c).map_err(|e| PyRuntimeError::new_err(e))?;
+    d_c.download(&mut padded_c)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let unpadded_c = tessera_runtime::unpad_matrix_2d(&padded_c, pad_n, m, n);
     Ok(unpadded_c)
@@ -564,8 +667,12 @@ fn matmul_arbitrary(
 #[pyfunction]
 fn test_async_streams(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     let gpu = GpuContext::init().map_err(|e| PyRuntimeError::new_err(e))?;
-    let stream1 = gpu.create_stream(true).map_err(|e| PyRuntimeError::new_err(e))?;
-    let stream2 = gpu.create_stream(true).map_err(|e| PyRuntimeError::new_err(e))?;
+    let stream1 = gpu
+        .create_stream(true)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    let stream2 = gpu
+        .create_stream(true)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
     let event_start = gpu.create_event().map_err(|e| PyRuntimeError::new_err(e))?;
     let event_end = gpu.create_event().map_err(|e| PyRuntimeError::new_err(e))?;
 
@@ -575,19 +682,29 @@ fn test_async_streams(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
 
     let host_data = vec![1.0f32; n];
 
-    event_start.record(&stream1).map_err(|e| PyRuntimeError::new_err(e))?;
+    event_start
+        .record(&stream1)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     // Async concurrent transfers on two independent streams
-    stream1.upload_async(&d_buf1, &host_data).map_err(|e| PyRuntimeError::new_err(e))?;
-    stream2.upload_async(&d_buf2, &host_data).map_err(|e| PyRuntimeError::new_err(e))?;
+    stream1
+        .upload_async(&d_buf1, &host_data)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
+    stream2
+        .upload_async(&d_buf2, &host_data)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
-    event_end.record(&stream1).map_err(|e| PyRuntimeError::new_err(e))?;
+    event_end
+        .record(&stream1)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     stream1.sync().map_err(|e| PyRuntimeError::new_err(e))?;
     stream2.sync().map_err(|e| PyRuntimeError::new_err(e))?;
     event_end.sync().map_err(|e| PyRuntimeError::new_err(e))?;
 
-    let elapsed_ms = event_start.elapsed_time(&event_end).map_err(|e| PyRuntimeError::new_err(e))?;
+    let elapsed_ms = event_start
+        .elapsed_time(&event_end)
+        .map_err(|e| PyRuntimeError::new_err(e))?;
 
     let dict = PyDict::new(py);
     dict.set_item("streams_created", 2)?;

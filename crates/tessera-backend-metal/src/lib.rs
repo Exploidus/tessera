@@ -17,7 +17,6 @@ impl Default for MetalGenerator {
 }
 
 impl MetalGenerator {
-
     pub fn compile(&self, module: &KernelModule) -> String {
         let config = module.gemm_config.clone().unwrap_or_default();
         self.emit_metal_gemm(&module.name, &config)
@@ -52,12 +51,21 @@ impl MetalGenerator {
 
         msl.push_str("    uint tx = thread_position_in_threadgroup.x;\n");
         msl.push_str("    uint ty = thread_position_in_threadgroup.y;\n");
-        msl.push_str(&format!("    uint global_row = threadgroup_position_in_grid.y * {} + ty;\n", td));
-        msl.push_str(&format!("    uint global_col = threadgroup_position_in_grid.x * {} + tx;\n\n", td));
+        msl.push_str(&format!(
+            "    uint global_row = threadgroup_position_in_grid.y * {} + ty;\n",
+            td
+        ));
+        msl.push_str(&format!(
+            "    uint global_col = threadgroup_position_in_grid.x * {} + tx;\n\n",
+            td
+        ));
 
         msl.push_str("    float acc = 0.0f;\n\n");
 
-        msl.push_str(&format!("    for (uint tile_k = 0; tile_k < k; tile_k += {}) {{\n", td));
+        msl.push_str(&format!(
+            "    for (uint tile_k = 0; tile_k < k; tile_k += {}) {{\n",
+            td
+        ));
         msl.push_str("        if (global_row < m && (tile_k + tx) < k) {\n");
         msl.push_str("            s_a[ty][tx] = A[global_row * k + (tile_k + tx)];\n");
         msl.push_str("        } else {\n");
@@ -80,16 +88,16 @@ impl MetalGenerator {
         msl.push_str("    }\n\n");
 
         match config.activation {
-            Activation::None => {},
+            Activation::None => {}
             Activation::ReLU => {
                 msl.push_str("    acc = max(acc, 0.0f);\n");
-            },
+            }
             Activation::GELU => {
                 msl.push_str("    acc = acc * (1.0f / (1.0f + exp(-1.702f * acc)));\n");
-            },
+            }
             Activation::Sigmoid => {
                 msl.push_str("    acc = 1.0f / (1.0f + exp(-acc));\n");
-            },
+            }
             Activation::Swish => {
                 msl.push_str("    acc = acc * (1.0f / (1.0f + exp(-acc)));\n");
             }
@@ -138,10 +146,15 @@ impl MetalGenerator {
         msl.push_str("        threadgroup_barrier(mem_flags::mem_threadgroup);\n");
         msl.push_str("    }\n\n");
 
-        msl.push_str(&format!("    float inv_rms = rsqrt((smem[0] / float(hidden_dim)) + {:.6}f);\n\n", config.eps));
+        msl.push_str(&format!(
+            "    float inv_rms = rsqrt((smem[0] / float(hidden_dim)) + {:.6}f);\n\n",
+            config.eps
+        ));
 
         msl.push_str("    for (uint i = tid; i < hidden_dim; i += 256) {\n");
-        msl.push_str("        output[row_offset + i] = (input[row_offset + i] * inv_rms) * weight[i];\n");
+        msl.push_str(
+            "        output[row_offset + i] = (input[row_offset + i] * inv_rms) * weight[i];\n",
+        );
         msl.push_str("    }\n");
         msl.push_str("}\n");
 

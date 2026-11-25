@@ -163,13 +163,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut lk_arg as *mut _ as *mut c_void,
     ];
 
-    unsafe { kernel.launch(l_grid, block_dim, 0, &mut l_args)?; }
+    unsafe {
+        kernel.launch(l_grid, block_dim, 0, &mut l_args)?;
+    }
     gpu.sync()?;
 
     let l_iters = 20;
     let l_start = Instant::now();
     for _ in 0..l_iters {
-        unsafe { kernel.launch(l_grid, block_dim, 0, &mut l_args)?; }
+        unsafe {
+            kernel.launch(l_grid, block_dim, 0, &mut l_args)?;
+        }
     }
     gpu.sync()?;
     let l_duration = l_start.elapsed() / l_iters;

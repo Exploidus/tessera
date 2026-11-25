@@ -43,14 +43,8 @@ impl SpirvGenerator {
         code.push_str("    uint k;\n");
         code.push_str("} dims;\n\n");
 
-        code.push_str(&format!(
-            "shared float s_a[{}][{}];\n",
-            td, td
-        ));
-        code.push_str(&format!(
-            "shared float s_b[{}][{}];\n\n",
-            td, td
-        ));
+        code.push_str(&format!("shared float s_a[{}][{}];\n", td, td));
+        code.push_str(&format!("shared float s_b[{}][{}];\n\n", td, td));
 
         code.push_str(&format!("void main() /* {} */ {{\n", kernel_name));
         code.push_str("    uint tx = gl_LocalInvocationID.x;\n");
@@ -63,7 +57,10 @@ impl SpirvGenerator {
 
         code.push_str("    float acc = 0.0;\n\n");
 
-        code.push_str(&format!("    for (uint k_idx = 0u; k_idx < dims.k; k_idx += {}u) {{\n", td));
+        code.push_str(&format!(
+            "    for (uint k_idx = 0u; k_idx < dims.k; k_idx += {}u) {{\n",
+            td
+        ));
         code.push_str("        uint curr_k_a = k_idx + tx;\n");
         code.push_str("        if (global_row < dims.m && curr_k_a < dims.k) {\n");
         code.push_str("            s_a[ty][tx] = a[global_row * dims.k + curr_k_a];\n");

@@ -40,11 +40,14 @@ pub struct CudaDriver {
     pub cu_driver_get_version: unsafe extern "system" fn(version: *mut i32) -> CUresult,
     pub cu_device_get_count: unsafe extern "system" fn(count: *mut i32) -> CUresult,
     pub cu_device_get: unsafe extern "system" fn(device: *mut CUdevice, ordinal: i32) -> CUresult,
-    pub cu_device_get_name: unsafe extern "system" fn(name: *mut u8, len: i32, dev: CUdevice) -> CUresult,
-    pub cu_ctx_create: unsafe extern "system" fn(pctx: *mut CUcontext, flags: u32, dev: CUdevice) -> CUresult,
+    pub cu_device_get_name:
+        unsafe extern "system" fn(name: *mut u8, len: i32, dev: CUdevice) -> CUresult,
+    pub cu_ctx_create:
+        unsafe extern "system" fn(pctx: *mut CUcontext, flags: u32, dev: CUdevice) -> CUresult,
     pub cu_ctx_destroy: unsafe extern "system" fn(ctx: CUcontext) -> CUresult,
     pub cu_ctx_sync: unsafe extern "system" fn() -> CUresult,
-    pub cu_module_load_data: unsafe extern "system" fn(module: *mut CUmodule, image: *const c_void) -> CUresult,
+    pub cu_module_load_data:
+        unsafe extern "system" fn(module: *mut CUmodule, image: *const c_void) -> CUresult,
     pub cu_module_load_data_ex: unsafe extern "system" fn(
         module: *mut CUmodule,
         image: *const c_void,
@@ -52,37 +55,82 @@ pub struct CudaDriver {
         options: *mut u32,
         optionValues: *mut *mut c_void,
     ) -> CUresult,
-    pub cu_module_get_function: unsafe extern "system" fn(hfunc: *mut CUfunction, hmod: CUmodule, name: *const u8) -> CUresult,
+    pub cu_module_get_function: unsafe extern "system" fn(
+        hfunc: *mut CUfunction,
+        hmod: CUmodule,
+        name: *const u8,
+    ) -> CUresult,
     pub cu_module_unload: unsafe extern "system" fn(hmod: CUmodule) -> CUresult,
-    pub cu_mem_alloc: unsafe extern "system" fn(dptr: *mut CUdeviceptr, bytesize: usize) -> CUresult,
+    pub cu_mem_alloc:
+        unsafe extern "system" fn(dptr: *mut CUdeviceptr, bytesize: usize) -> CUresult,
     pub cu_mem_free: unsafe extern "system" fn(dptr: CUdeviceptr) -> CUresult,
-    pub cu_memcpy_htod: unsafe extern "system" fn(dst: CUdeviceptr, src: *const c_void, bytes: usize) -> CUresult,
-    pub cu_memcpy_dtoh: unsafe extern "system" fn(dst: *mut c_void, src: CUdeviceptr, bytes: usize) -> CUresult,
-    pub cu_memcpy_htod_async: unsafe extern "system" fn(dst: CUdeviceptr, src: *const c_void, bytes: usize, hStream: CUstream) -> CUresult,
-    pub cu_memcpy_dtoh_async: unsafe extern "system" fn(dst: *mut c_void, src: CUdeviceptr, bytes: usize, hStream: CUstream) -> CUresult,
+    pub cu_memcpy_htod:
+        unsafe extern "system" fn(dst: CUdeviceptr, src: *const c_void, bytes: usize) -> CUresult,
+    pub cu_memcpy_dtoh:
+        unsafe extern "system" fn(dst: *mut c_void, src: CUdeviceptr, bytes: usize) -> CUresult,
+    pub cu_memcpy_htod_async: unsafe extern "system" fn(
+        dst: CUdeviceptr,
+        src: *const c_void,
+        bytes: usize,
+        hStream: CUstream,
+    ) -> CUresult,
+    pub cu_memcpy_dtoh_async: unsafe extern "system" fn(
+        dst: *mut c_void,
+        src: CUdeviceptr,
+        bytes: usize,
+        hStream: CUstream,
+    ) -> CUresult,
     pub cu_launch_kernel: unsafe extern "system" fn(
         f: CUfunction,
-        gridDimX: u32, gridDimY: u32, gridDimZ: u32,
-        blockDimX: u32, blockDimY: u32, blockDimZ: u32,
+        gridDimX: u32,
+        gridDimY: u32,
+        gridDimZ: u32,
+        blockDimX: u32,
+        blockDimY: u32,
+        blockDimZ: u32,
         sharedMemBytes: u32,
         hStream: CUstream,
         kernelParams: *mut *mut c_void,
         extra: *mut *mut c_void,
     ) -> CUresult,
-    pub cu_stream_create: unsafe extern "system" fn(phStream: *mut CUstream, flags: u32) -> CUresult,
+    pub cu_stream_create:
+        unsafe extern "system" fn(phStream: *mut CUstream, flags: u32) -> CUresult,
     pub cu_stream_destroy: unsafe extern "system" fn(hStream: CUstream) -> CUresult,
     pub cu_stream_synchronize: unsafe extern "system" fn(hStream: CUstream) -> CUresult,
-    pub cu_stream_wait_event: unsafe extern "system" fn(hStream: CUstream, hEvent: CUevent, flags: u32) -> CUresult,
+    pub cu_stream_wait_event:
+        unsafe extern "system" fn(hStream: CUstream, hEvent: CUevent, flags: u32) -> CUresult,
     pub cu_event_create: unsafe extern "system" fn(phEvent: *mut CUevent, flags: u32) -> CUresult,
     pub cu_event_destroy: unsafe extern "system" fn(hEvent: CUevent) -> CUresult,
     pub cu_event_record: unsafe extern "system" fn(hEvent: CUevent, hStream: CUstream) -> CUresult,
     pub cu_event_synchronize: unsafe extern "system" fn(hEvent: CUevent) -> CUresult,
-    pub cu_event_elapsed_time: unsafe extern "system" fn(pMilliseconds: *mut f32, hStart: CUevent, hEnd: CUevent) -> CUresult,
-    pub cu_device_can_access_peer: unsafe extern "system" fn(canAccessPeer: *mut i32, dev: CUdevice, peerDev: CUdevice) -> CUresult,
-    pub cu_ctx_enable_peer_access: unsafe extern "system" fn(peerCtx: CUcontext, flags: u32) -> CUresult,
+    pub cu_event_elapsed_time: unsafe extern "system" fn(
+        pMilliseconds: *mut f32,
+        hStart: CUevent,
+        hEnd: CUevent,
+    ) -> CUresult,
+    pub cu_device_can_access_peer: unsafe extern "system" fn(
+        canAccessPeer: *mut i32,
+        dev: CUdevice,
+        peerDev: CUdevice,
+    ) -> CUresult,
+    pub cu_ctx_enable_peer_access:
+        unsafe extern "system" fn(peerCtx: CUcontext, flags: u32) -> CUresult,
     pub cu_ctx_disable_peer_access: unsafe extern "system" fn(peerCtx: CUcontext) -> CUresult,
-    pub cu_memcpy_peer: unsafe extern "system" fn(dstDevice: CUdeviceptr, dstContext: CUcontext, srcDevice: CUdeviceptr, srcContext: CUcontext, ByteCount: usize) -> CUresult,
-    pub cu_memcpy_peer_async: unsafe extern "system" fn(dstDevice: CUdeviceptr, dstContext: CUcontext, srcDevice: CUdeviceptr, srcContext: CUcontext, ByteCount: usize, hStream: CUstream) -> CUresult,
+    pub cu_memcpy_peer: unsafe extern "system" fn(
+        dstDevice: CUdeviceptr,
+        dstContext: CUcontext,
+        srcDevice: CUdeviceptr,
+        srcContext: CUcontext,
+        ByteCount: usize,
+    ) -> CUresult,
+    pub cu_memcpy_peer_async: unsafe extern "system" fn(
+        dstDevice: CUdeviceptr,
+        dstContext: CUcontext,
+        srcDevice: CUdeviceptr,
+        srcContext: CUcontext,
+        ByteCount: usize,
+        hStream: CUstream,
+    ) -> CUresult,
 }
 
 impl CudaDriver {

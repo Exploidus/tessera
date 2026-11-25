@@ -9,8 +9,8 @@ use tessera_backend_ptx::PtxGenerator;
 use tessera_ir::KernelModule;
 
 use cuda_driver::{
-    CudaDriver, CUDA_SUCCESS, CUcontext, CUdevice, CUdeviceptr, CUevent, CUfunction, CUmodule,
-    CUstream, CU_EVENT_DEFAULT, CU_STREAM_NON_BLOCKING,
+    CUcontext, CUdevice, CUdeviceptr, CUevent, CUfunction, CUmodule, CUstream, CudaDriver,
+    CUDA_SUCCESS, CU_EVENT_DEFAULT, CU_STREAM_NON_BLOCKING,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +110,11 @@ impl GpuBuffer {
             return Err("Host data exceeds device buffer allocation".into());
         }
         unsafe {
-            let res = (self.driver.cu_memcpy_htod)(self.dptr, host_data.as_ptr() as *const c_void, data_bytes);
+            let res = (self.driver.cu_memcpy_htod)(
+                self.dptr,
+                host_data.as_ptr() as *const c_void,
+                data_bytes,
+            );
             if res != CUDA_SUCCESS {
                 return Err(format!("cuMemcpyHtoD failed with code {}", res));
             }
@@ -124,7 +128,11 @@ impl GpuBuffer {
             return Err("Host slice exceeds device buffer size".into());
         }
         unsafe {
-            let res = (self.driver.cu_memcpy_dtoh)(host_data.as_mut_ptr() as *mut c_void, self.dptr, data_bytes);
+            let res = (self.driver.cu_memcpy_dtoh)(
+                host_data.as_mut_ptr() as *mut c_void,
+                self.dptr,
+                data_bytes,
+            );
             if res != CUDA_SUCCESS {
                 return Err(format!("cuMemcpyDtoH failed with code {}", res));
             }
@@ -231,8 +239,12 @@ impl GpuStream {
     ) -> Result<(), String> {
         let res = (self.driver.cu_launch_kernel)(
             kernel.func,
-            grid_dim.0, grid_dim.1, grid_dim.2,
-            block_dim.0, block_dim.1, block_dim.2,
+            grid_dim.0,
+            grid_dim.1,
+            grid_dim.2,
+            block_dim.0,
+            block_dim.1,
+            block_dim.2,
             shared_mem_bytes,
             self.stream,
             args.as_mut_ptr(),
@@ -407,7 +419,10 @@ impl GpuContext {
             let mut device: CUdevice = 0;
             let res = (driver.cu_device_get)(&mut device, ordinal);
             if res != CUDA_SUCCESS {
-                return Err(format!("cuDeviceGet failed for ordinal {}: code {}", ordinal, res));
+                return Err(format!(
+                    "cuDeviceGet failed for ordinal {}: code {}",
+                    ordinal, res
+                ));
             }
 
             let mut name_buf = [0u8; 256];
@@ -478,7 +493,10 @@ impl GpuContext {
             );
             if res != CUDA_SUCCESS {
                 let err_str = CStr::from_ptr(error_log.as_ptr() as *const i8).to_string_lossy();
-                return Err(format!("cuModuleLoadDataEx failed (code: {}): {}", res, err_str));
+                return Err(format!(
+                    "cuModuleLoadDataEx failed (code: {}): {}",
+                    res, err_str
+                ));
             }
         }
         Ok(GpuModule {
@@ -518,9 +536,16 @@ impl GpuModule {
         let c_name = CString::new(name).map_err(|e| e.to_string())?;
         let mut func: CUfunction = std::ptr::null_mut();
         unsafe {
-            let res = (self.driver.cu_module_get_function)(&mut func, self.module, c_name.as_ptr() as *const u8);
+            let res = (self.driver.cu_module_get_function)(
+                &mut func,
+                self.module,
+                c_name.as_ptr() as *const u8,
+            );
             if res != CUDA_SUCCESS {
-                return Err(format!("Kernel function '{}' not found in module (code: {})", name, res));
+                return Err(format!(
+                    "Kernel function '{}' not found in module (code: {})",
+                    name, res
+                ));
             }
         }
         Ok(GpuKernel {
@@ -553,8 +578,12 @@ impl GpuKernel {
     ) -> Result<(), String> {
         let res = (self.driver.cu_launch_kernel)(
             self.func,
-            grid_dim.0, grid_dim.1, grid_dim.2,
-            block_dim.0, block_dim.1, block_dim.2,
+            grid_dim.0,
+            grid_dim.1,
+            grid_dim.2,
+            block_dim.0,
+            block_dim.1,
+            block_dim.2,
             shared_mem_bytes,
             std::ptr::null_mut(),
             args.as_mut_ptr(),

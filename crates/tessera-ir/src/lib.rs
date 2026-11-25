@@ -42,7 +42,11 @@ pub struct TileShape {
 
 impl TileShape {
     pub const fn new_2d(rows: usize, cols: usize) -> Self {
-        Self { m: rows, n: cols, k: 1 }
+        Self {
+            m: rows,
+            n: cols,
+            k: 1,
+        }
     }
 
     pub const fn new_gemm(m: usize, n: usize, k: usize) -> Self {
@@ -124,9 +128,7 @@ pub struct SwiGLUConfig {
 
 impl Default for SwiGLUConfig {
     fn default() -> Self {
-        Self {
-            num_elements: 4096,
-        }
+        Self { num_elements: 4096 }
     }
 }
 
