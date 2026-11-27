@@ -1,5 +1,6 @@
 use tessera_ir::{
-    Activation, FlashAttentionConfig, GemmConfig, KernelModule, RMSNormConfig, SwiGLUConfig, TileOp,
+    fusion::FusionEngine, Activation, FlashAttentionConfig, GemmConfig, KernelModule,
+    RMSNormConfig, SwiGLUConfig, TileOp,
 };
 
 pub struct PtxGenerator {
@@ -12,17 +13,25 @@ impl PtxGenerator {
     }
 
     pub fn compile(&self, module: &KernelModule) -> String {
-        if let Some(fa_cfg) = module.ops.iter().find_map(|op| match op {
+        let (optimized, _) = FusionEngine::optimize(module);
+        if let Some(fa_cfg) = optimized.ops.iter().find_map(|op| match op {
             TileOp::FlashAttention(cfg) => Some(cfg),
             _ => None,
         }) {
-            return self.emit_flash_attention(&module.name, fa_cfg);
+            return self.emit_flash_attention(&optimized.name, fa_cfg);
         }
-        let config = module.gemm_config.clone().unwrap_or_default();
+        for op in &optimized.ops {
+            if let TileOp::FusedHorizontal(group) = op {
+                if let Some(TileOp::TileMatMul(cfg)) = group.first() {
+                    return self.emit_batched_tiled_gemm(&optimized.name, cfg);
+                }
+            }
+        }
+        let config = optimized.gemm_config.clone().unwrap_or_default();
         if config.use_tensor_cores {
-            self.emit_tensor_core_gemm(&module.name, &config)
+            self.emit_tensor_core_gemm(&optimized.name, &config)
         } else {
-            self.emit_tiled_gemm(&module.name, &config)
+            self.emit_tiled_gemm(&optimized.name, &config)
         }
     }
 
@@ -246,6 +255,19 @@ impl PtxGenerator {
     }
 
     pub fn emit_tiled_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
+        self.emit_tiled_gemm_impl(kernel_name, config, false)
+    }
+
+    pub fn emit_batched_tiled_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
+        self.emit_tiled_gemm_impl(kernel_name, config, true)
+    }
+
+    fn emit_tiled_gemm_impl(
+        &self,
+        kernel_name: &str,
+        config: &GemmConfig,
+        batched: bool,
+    ) -> String {
         let tile_dim = 16;
         let smem_elements = tile_dim * tile_dim;
         let smem_bytes_per_tile = smem_elements * 4;
@@ -283,6 +305,17 @@ impl PtxGenerator {
         ptx.push_str("    ld.param.u32 %r1,  [param_m];\n");
         ptx.push_str("    ld.param.u32 %r2,  [param_n];\n");
         ptx.push_str("    ld.param.u32 %r3,  [param_k];\n\n");
+
+        if batched {
+            ptx.push_str("    mov.u32 %r20, %ctaid.z;\n");
+            ptx.push_str("    mul.wide.u32 %rd20, %r20, 8;\n");
+            ptx.push_str("    add.u64 %rd21, %rd1, %rd20;\n");
+            ptx.push_str("    ld.global.u64 %rd1, [%rd21];\n");
+            ptx.push_str("    add.u64 %rd22, %rd2, %rd20;\n");
+            ptx.push_str("    ld.global.u64 %rd2, [%rd22];\n");
+            ptx.push_str("    add.u64 %rd23, %rd3, %rd20;\n");
+            ptx.push_str("    ld.global.u64 %rd3, [%rd23];\n\n");
+        }
 
         ptx.push_str("    mov.u32 %r4, %tid.x;\n");
         ptx.push_str("    mov.u32 %r5, %tid.y;\n");
