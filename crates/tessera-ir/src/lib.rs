@@ -1,3 +1,4 @@
+pub mod fusion;
 pub mod layout;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -166,6 +167,8 @@ pub enum TileOp {
         stride: usize,
     },
     TileMatMul(GemmConfig),
+    Elementwise(Activation),
+    FusedHorizontal(Vec<TileOp>),
     RMSNorm(RMSNormConfig),
     SwiGLU(SwiGLUConfig),
     FlashAttention(FlashAttentionConfig),

@@ -35,20 +35,21 @@ impl JITCompiler {
     }
 
     pub fn compile_and_assemble(&self, module: &KernelModule) -> String {
+        let (optimized, _) = tessera_ir::fusion::FusionEngine::optimize(module);
         match self.backend {
             DeviceBackend::NvidiaPtx => {
                 let gen = PtxGenerator::new(self.target_arch);
-                gen.compile(module)
+                gen.compile(&optimized)
             }
             DeviceBackend::VulkanSpirv => {
                 let gen = tessera_backend_spirv::SpirvGenerator::new();
-                let config = module.gemm_config.clone().unwrap_or_default();
-                gen.emit_vulkan_compute_shader(&module.name, &config)
+                let config = optimized.gemm_config.clone().unwrap_or_default();
+                gen.emit_vulkan_compute_shader(&optimized.name, &config)
             }
             DeviceBackend::AppleMetal => {
                 let gen = tessera_backend_metal::MetalGenerator::new();
-                let config = module.gemm_config.clone().unwrap_or_default();
-                gen.emit_metal_gemm(&module.name, &config)
+                let config = optimized.gemm_config.clone().unwrap_or_default();
+                gen.emit_metal_gemm(&optimized.name, &config)
             }
             DeviceBackend::HostCpu => {
                 todo!("Host CPU fallback backend in development")
