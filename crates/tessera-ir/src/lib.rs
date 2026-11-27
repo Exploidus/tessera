@@ -194,4 +194,12 @@ impl KernelModule {
             gemm_config: Some(config),
         }
     }
+
+    pub fn with_flash_attention(name: impl Into<String>, config: FlashAttentionConfig) -> Self {
+        Self {
+            name: name.into(),
+            ops: vec![TileOp::FlashAttention(config)],
+            gemm_config: None,
+        }
+    }
 }
