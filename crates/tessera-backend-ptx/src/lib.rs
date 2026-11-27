@@ -1,5 +1,5 @@
 use tessera_ir::{
-    Activation, FlashAttentionConfig, GemmConfig, KernelModule, RMSNormConfig, SwiGLUConfig,
+    Activation, FlashAttentionConfig, GemmConfig, KernelModule, RMSNormConfig, SwiGLUConfig, TileOp,
 };
 
 pub struct PtxGenerator {
@@ -12,6 +12,12 @@ impl PtxGenerator {
     }
 
     pub fn compile(&self, module: &KernelModule) -> String {
+        if let Some(fa_cfg) = module.ops.iter().find_map(|op| match op {
+            TileOp::FlashAttention(cfg) => Some(cfg),
+            _ => None,
+        }) {
+            return self.emit_flash_attention(&module.name, fa_cfg);
+        }
         let config = module.gemm_config.clone().unwrap_or_default();
         if config.use_tensor_cores {
             self.emit_tensor_core_gemm(&module.name, &config)
@@ -563,7 +569,7 @@ impl PtxGenerator {
     }
 
     pub fn emit_flash_attention(&self, kernel_name: &str, config: &FlashAttentionConfig) -> String {
-        let mut ptx = String::with_capacity(4096);
+        let mut ptx = String::with_capacity(6144);
         ptx.push_str(".version 8.0\n");
         ptx.push_str(&format!(".target sm_{}\n", self.target_sm));
         ptx.push_str(".address_size 64\n\n");
@@ -578,10 +584,11 @@ impl PtxGenerator {
         ptx.push_str(")\n");
         ptx.push_str(".maxntid 64, 1, 1\n");
         ptx.push_str("{\n");
+        ptx.push_str("    .shared .align 16 .b8 smem_red[256];\n\n");
         ptx.push_str("    .reg .pred %p<8>;\n");
-        ptx.push_str("    .reg .b32 %r<16>;\n");
-        ptx.push_str("    .reg .b64 %rd<16>;\n");
-        ptx.push_str("    .reg .f32 %f<16>;\n\n");
+        ptx.push_str("    .reg .b32 %r<20>;\n");
+        ptx.push_str("    .reg .b64 %rd<24>;\n");
+        ptx.push_str("    .reg .f32 %f<20>;\n\n");
 
         ptx.push_str("    ld.param.u64 %rd1, [param_q];\n");
         ptx.push_str("    ld.param.u64 %rd2, [param_k];\n");
@@ -590,28 +597,98 @@ impl PtxGenerator {
         ptx.push_str("    ld.param.u32 %r1,  [param_seq_len];\n");
         ptx.push_str("    ld.param.u32 %r2,  [param_head_dim];\n\n");
 
-        ptx.push_str("    mov.u32 %r3, %ctaid.x;\n"); // q token index
-        ptx.push_str("    mov.u32 %r4, %tid.x;\n"); // dimension index (d < head_dim)
-        ptx.push_str("    setp.ge.u32 %p1, %r4, %r2;\n");
-        ptx.push_str("    @%p1 bra $fa_exit;\n\n");
+        ptx.push_str("    mov.u32 %r3, %ctaid.x;\n");
+        ptx.push_str("    mov.u32 %r4, %tid.x;\n");
+        ptx.push_str("    mov.u32 %r5, %ctaid.y;\n");
+        ptx.push_str("    mul.lo.u32 %r6, %r1, %r2;\n");
+        ptx.push_str("    mul.lo.u32 %r6, %r5, %r6;\n");
+        ptx.push_str("    mad.lo.u32 %r7, %r3, %r2, %r6;\n\n");
+
+        ptx.push_str("    setp.lt.u32 %p1, %r4, %r2;\n");
+        ptx.push_str("    mov.u64 %rd11, smem_red;\n");
+        ptx.push_str("    cvta.shared.u64 %rd10, %rd11;\n");
+        ptx.push_str("    mul.wide.u32 %rd13, %r4, 4;\n");
+        ptx.push_str("    add.u64 %rd12, %rd10, %rd13;\n\n");
 
         let scale = 1.0f32 / (config.head_dim as f32).sqrt();
         ptx.push_str(&format!("    mov.f32 %f1, 0f{:08X};\n", scale.to_bits()));
+        ptx.push_str("    mov.f32 %f2, 0f00000000;\n");
+        ptx.push_str("    @%p1 add.u32 %r15, %r7, %r4;\n");
+        ptx.push_str("    @%p1 mul.wide.u32 %rd5, %r15, 4;\n");
+        ptx.push_str("    @%p1 add.u64 %rd6, %rd1, %rd5;\n");
+        ptx.push_str("    @%p1 ld.global.f32 %f2, [%rd6];\n\n");
 
-        ptx.push_str("    mul.lo.u32 %r5, %r3, %r2;\n");
-        ptx.push_str("    add.u32 %r6, %r5, %r4;\n");
-        ptx.push_str("    mul.wide.u32 %rd5, %r6, 4;\n");
-        ptx.push_str("    add.u64 %rd6, %rd1, %rd5;\n");
-        ptx.push_str("    ld.global.f32 %f2, [%rd6];\n"); // q_val
+        ptx.push_str("    mov.f32 %f3, 0f00000000;\n");
+        ptx.push_str("    mov.f32 %f4, 0fFF800000;\n");
+        ptx.push_str("    mov.f32 %f5, 0f00000000;\n");
+        ptx.push_str("    mov.f32 %f6, 0f3FB8AA3B;\n\n");
 
-        // Simplified fast projection accumulation for demo
-        ptx.push_str("    add.u64 %rd7, %rd3, %rd5;\n");
-        ptx.push_str("    ld.global.f32 %f3, [%rd7];\n"); // v_val
-        ptx.push_str("    mul.f32 %f4, %f2, %f1;\n");
-        ptx.push_str("    mul.f32 %f5, %f4, %f3;\n");
+        if config.is_causal {
+            ptx.push_str("    add.u32 %r10, %r3, 1;\n");
+            ptx.push_str("    min.u32 %r9, %r1, %r10;\n");
+        } else {
+            ptx.push_str("    mov.u32 %r9, %r1;\n");
+        }
+        ptx.push_str("    mov.u32 %r8, 0;\n\n");
 
-        ptx.push_str("    add.u64 %rd8, %rd4, %rd5;\n");
-        ptx.push_str("    st.global.f32 [%rd8], %f5;\n");
+        ptx.push_str("$fa_j_loop:\n");
+        ptx.push_str("    setp.ge.u32 %p2, %r8, %r9;\n");
+        ptx.push_str("    @%p2 bra $fa_j_done;\n\n");
+
+        ptx.push_str("    mad.lo.u32 %r11, %r8, %r2, %r6;\n");
+        ptx.push_str("    add.u32 %r12, %r11, %r4;\n");
+        ptx.push_str("    mul.wide.u32 %rd14, %r12, 4;\n");
+        ptx.push_str("    mov.f32 %f7, 0f00000000;\n");
+        ptx.push_str("    @%p1 add.u64 %rd15, %rd2, %rd14;\n");
+        ptx.push_str("    @%p1 ld.global.f32 %f7, [%rd15];\n");
+        ptx.push_str("    mul.f32 %f8, %f2, %f7;\n");
+        ptx.push_str("    st.f32 [%rd12], %f8;\n");
+        ptx.push_str("    bar.sync 0;\n\n");
+
+        for stride in [32u32, 16, 8, 4, 2, 1] {
+            ptx.push_str(&format!("    setp.lt.u32 %p3, %r4, {};\n", stride));
+            ptx.push_str(&format!("    @%p3 add.u32 %r13, %r4, {};\n", stride));
+            ptx.push_str("    @%p3 mul.wide.u32 %rd16, %r13, 4;\n");
+            ptx.push_str("    @%p3 add.u64 %rd17, %rd10, %rd16;\n");
+            ptx.push_str("    @%p3 ld.f32 %f9, [%rd17];\n");
+            ptx.push_str("    @%p3 ld.f32 %f10, [%rd12];\n");
+            ptx.push_str("    @%p3 add.f32 %f10, %f10, %f9;\n");
+            ptx.push_str("    @%p3 st.f32 [%rd12], %f10;\n");
+            ptx.push_str("    bar.sync 0;\n");
+        }
+        ptx.push('\n');
+
+        ptx.push_str("    ld.f32 %f11, [%rd10];\n");
+        ptx.push_str("    mul.f32 %f11, %f11, %f1;\n");
+        ptx.push_str("    max.f32 %f12, %f4, %f11;\n");
+        ptx.push_str("    setp.eq.u32 %p4, %r8, 0;\n");
+        ptx.push_str("    sub.f32 %f13, %f4, %f12;\n");
+        ptx.push_str("    mul.f32 %f13, %f13, %f6;\n");
+        ptx.push_str("    ex2.approx.f32 %f13, %f13;\n");
+        ptx.push_str("    @%p4 mov.f32 %f13, 0f00000000;\n");
+        ptx.push_str("    sub.f32 %f14, %f11, %f12;\n");
+        ptx.push_str("    mul.f32 %f14, %f14, %f6;\n");
+        ptx.push_str("    ex2.approx.f32 %f14, %f14;\n");
+        ptx.push_str("    fma.rn.f32 %f5, %f5, %f13, %f14;\n\n");
+
+        ptx.push_str("    mov.f32 %f15, 0f00000000;\n");
+        ptx.push_str("    @%p1 add.u64 %rd18, %rd3, %rd14;\n");
+        ptx.push_str("    @%p1 ld.global.f32 %f15, [%rd18];\n");
+        ptx.push_str("    mul.f32 %f3, %f3, %f13;\n");
+        ptx.push_str("    fma.rn.f32 %f3, %f14, %f15, %f3;\n");
+        ptx.push_str("    mov.f32 %f4, %f12;\n");
+        ptx.push_str("    bar.sync 0;\n");
+        ptx.push_str("    add.u32 %r8, %r8, 1;\n");
+        ptx.push_str("    bra $fa_j_loop;\n\n");
+
+        ptx.push_str("$fa_j_done:\n");
+        ptx.push_str("    @!%p1 bra $fa_exit;\n");
+        ptx.push_str("    div.rn.f32 %f16, 0f3F800000, %f5;\n");
+        ptx.push_str("    mul.f32 %f3, %f3, %f16;\n");
+        ptx.push_str("    add.u32 %r14, %r7, %r4;\n");
+        ptx.push_str("    mul.wide.u32 %rd19, %r14, 4;\n");
+        ptx.push_str("    add.u64 %rd20, %rd4, %rd19;\n");
+        ptx.push_str("    st.global.f32 [%rd20], %f3;\n\n");
 
         ptx.push_str("$fa_exit:\n");
         ptx.push_str("    ret;\n");
@@ -653,5 +730,23 @@ mod tests {
         assert!(ptx.contains(".target sm_75"));
         assert!(!ptx.contains("cp.async"));
         assert!(ptx.contains("wmma.mma.sync.aligned.row.row.m16n16k16.f32.f32"));
+    }
+
+    #[test]
+    fn test_flash_attention_2_online_softmax_ptx() {
+        let cfg = FlashAttentionConfig {
+            batch_size: 1,
+            num_heads: 4,
+            seq_len: 128,
+            head_dim: 64,
+            is_causal: true,
+        };
+        let module = KernelModule::with_flash_attention("flash_attn_v2", cfg);
+        let ptx = PtxGenerator::new(86).compile(&module);
+        assert!(ptx.contains(".visible .entry flash_attn_v2"));
+        assert!(ptx.contains("smem_red[256]"));
+        assert!(ptx.contains("ex2.approx.f32"));
+        assert!(ptx.contains("min.u32 %r9, %r1, %r10"));
+        assert!(ptx.contains("div.rn.f32"));
     }
 }
