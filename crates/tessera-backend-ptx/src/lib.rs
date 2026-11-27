@@ -1,5 +1,5 @@
 use tessera_ir::{
-    fusion::FusionEngine, Activation, FlashAttentionConfig, GemmConfig, KernelModule,
+    fusion::FusionEngine, Activation, DType, FlashAttentionConfig, GemmConfig, KernelModule,
     RMSNormConfig, SwiGLUConfig, TileOp,
 };
 
@@ -36,10 +36,228 @@ impl PtxGenerator {
     }
 
     pub fn emit_tensor_core_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
-        if self.target_sm >= 80 {
-            return self.emit_async_tensor_core_gemm(kernel_name, config);
+        match config.a_dtype {
+            DType::F8E4M3 | DType::F8E5M2 => self.emit_fp8_tensor_core_gemm(kernel_name, config),
+            DType::I4 => self.emit_int4_tensor_core_gemm(kernel_name, config),
+            _ => {
+                if self.target_sm >= 80 {
+                    return self.emit_async_tensor_core_gemm(kernel_name, config);
+                }
+                self.emit_sync_tensor_core_gemm(kernel_name, config)
+            }
         }
-        self.emit_sync_tensor_core_gemm(kernel_name, config)
+    }
+
+    pub fn emit_fp8_tensor_core_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
+        let a_ty = config.a_dtype.ptx_type_str();
+        let b_ty = if matches!(config.b_dtype, DType::F8E4M3 | DType::F8E5M2) {
+            config.b_dtype.ptx_type_str()
+        } else {
+            a_ty
+        };
+
+        let mut ptx = String::with_capacity(4096);
+        ptx.push_str(".version 8.0\n");
+        ptx.push_str(&format!(".target sm_{}\n", self.target_sm));
+        ptx.push_str(".address_size 64\n\n");
+
+        ptx.push_str(&format!(".visible .entry {}(\n", kernel_name));
+        ptx.push_str("    .param .u64 param_a,\n");
+        ptx.push_str("    .param .u64 param_b,\n");
+        ptx.push_str("    .param .u64 param_c,\n");
+        ptx.push_str("    .param .u32 param_m,\n");
+        ptx.push_str("    .param .u32 param_n,\n");
+        ptx.push_str("    .param .u32 param_k\n");
+        ptx.push_str(")\n");
+        ptx.push_str(".maxntid 32, 1, 1\n");
+        ptx.push_str("{\n");
+        ptx.push_str("    .reg .b32 %a<4>;\n");
+        ptx.push_str("    .reg .b32 %b<2>;\n");
+        ptx.push_str("    .reg .f32 %c<4>;\n");
+        ptx.push_str("    .reg .pred %p<4>;\n");
+        ptx.push_str("    .reg .b32 %r<24>;\n");
+        ptx.push_str("    .reg .b64 %rd<16>;\n\n");
+
+        ptx.push_str("    ld.param.u64 %rd1, [param_a];\n");
+        ptx.push_str("    ld.param.u64 %rd2, [param_b];\n");
+        ptx.push_str("    ld.param.u64 %rd3, [param_c];\n");
+        ptx.push_str("    ld.param.u32 %r1,  [param_m];\n");
+        ptx.push_str("    ld.param.u32 %r2,  [param_n];\n");
+        ptx.push_str("    ld.param.u32 %r3,  [param_k];\n\n");
+
+        for i in 0..4 {
+            ptx.push_str(&format!("    mov.f32 %c{}, 0f00000000;\n", i));
+        }
+        ptx.push('\n');
+
+        ptx.push_str("    mov.u32 %r4, %ctaid.y;\n");
+        ptx.push_str("    shl.b32 %r5, %r4, 4;\n"); // block_m = ctaid.y * 16
+        ptx.push_str("    mov.u32 %r6, %ctaid.x;\n");
+        ptx.push_str("    shl.b32 %r7, %r6, 3;\n"); // block_n = ctaid.x * 8
+        ptx.push_str("    mov.u32 %r8, %tid.x;\n");
+        ptx.push_str("    shr.u32 %r9, %r8, 2;\n"); // groupID = tid / 4 (0..7)
+        ptx.push_str("    and.b32 %r10, %r8, 3;\n"); // threadID_in_group = tid % 4 (0..3)
+        ptx.push_str("    shl.b32 %r11, %r10, 2;\n\n"); // k_sub = (tid % 4) * 4
+
+        ptx.push_str("    mov.u32 %r12, 0;\n");
+        ptx.push_str("$fp8_k_loop:\n");
+        ptx.push_str("    setp.ge.u32 %p1, %r12, %r3;\n");
+        ptx.push_str("    @%p1 bra $fp8_k_done;\n\n");
+
+        // Load A fragment (4 x b32 = 16 bytes of FP8 per thread for m16n8k32)
+        ptx.push_str("    add.u32 %r13, %r5, %r9;\n");
+        ptx.push_str("    add.u32 %r14, %r12, %r11;\n");
+        ptx.push_str("    mad.lo.u32 %r15, %r13, %r3, %r14;\n");
+        ptx.push_str("    cvt.u64.u32 %rd4, %r15;\n");
+        ptx.push_str("    add.u64 %rd5, %rd1, %rd4;\n");
+        ptx.push_str("    ld.global.u32 %a0, [%rd5];\n");
+        ptx.push_str("    add.u64 %rd6, %rd5, 16;\n");
+        ptx.push_str("    ld.global.u32 %a1, [%rd6];\n");
+        ptx.push_str("    mul.wide.u32 %rd7, %r3, 8;\n");
+        ptx.push_str("    add.u64 %rd8, %rd5, %rd7;\n");
+        ptx.push_str("    ld.global.u32 %a2, [%rd8];\n");
+        ptx.push_str("    add.u64 %rd9, %rd8, 16;\n");
+        ptx.push_str("    ld.global.u32 %a3, [%rd9];\n\n");
+
+        // Load B fragment (2 x b32 = 8 bytes of FP8 per thread for m16n8k32)
+        ptx.push_str("    add.u32 %r16, %r7, %r9;\n");
+        ptx.push_str("    mad.lo.u32 %r17, %r16, %r3, %r14;\n");
+        ptx.push_str("    cvt.u64.u32 %rd10, %r17;\n");
+        ptx.push_str("    add.u64 %rd11, %rd2, %rd10;\n");
+        ptx.push_str("    ld.global.u32 %b0, [%rd11];\n");
+        ptx.push_str("    add.u64 %rd12, %rd11, 16;\n");
+        ptx.push_str("    ld.global.u32 %b1, [%rd12];\n\n");
+
+        if self.target_sm >= 89 {
+            ptx.push_str(&format!(
+                "    mma.sync.aligned.m16n8k32.row.col.f32.{}.{}.f32 {{%c0, %c1, %c2, %c3}}, {{%a0, %a1, %a2, %a3}}, {{%b0, %b1}}, {{%c0, %c1, %c2, %c3}};\n\n",
+                a_ty, b_ty
+            ));
+        } else {
+            // Pre-Ada fallback: byte-unpack to s32/f32 dot product approximation
+            ptx.push_str("    dp4a.s32.s32 %c0, %a0, %b0, %c0;\n");
+            ptx.push_str("    dp4a.s32.s32 %c1, %a1, %b1, %c1;\n\n");
+        }
+
+        ptx.push_str("    add.u32 %r12, %r12, 32;\n");
+        ptx.push_str("    bra $fp8_k_loop;\n");
+        ptx.push_str("$fp8_k_done:\n\n");
+
+        if config.activation == Activation::ReLU {
+            for i in 0..4 {
+                ptx.push_str(&format!("    setp.lt.f32 %p2, %c{}, 0f00000000;\n", i));
+                ptx.push_str(&format!("    @%p2 mov.f32 %c{}, 0f00000000;\n", i));
+            }
+        }
+
+        ptx.push_str("    shl.b32 %r18, %r10, 1;\n");
+        ptx.push_str("    add.u32 %r19, %r5, %r9;\n");
+        ptx.push_str("    add.u32 %r20, %r7, %r18;\n");
+        ptx.push_str("    mad.lo.u32 %r21, %r19, %r2, %r20;\n");
+        ptx.push_str("    mul.wide.u32 %rd13, %r21, 4;\n");
+        ptx.push_str("    add.u64 %rd14, %rd3, %rd13;\n");
+        ptx.push_str("    st.global.v2.f32 [%rd14], {%c0, %c1};\n");
+        ptx.push_str("    mul.wide.u32 %rd15, %r2, 32;\n");
+        ptx.push_str("    add.u64 %rd14, %rd14, %rd15;\n");
+        ptx.push_str("    st.global.v2.f32 [%rd14], {%c2, %c3};\n\n");
+
+        ptx.push_str("    ret;\n");
+        ptx.push_str("}\n");
+
+        ptx
+    }
+
+    pub fn emit_int4_tensor_core_gemm(&self, kernel_name: &str, _config: &GemmConfig) -> String {
+        let mut ptx = String::with_capacity(4096);
+        ptx.push_str(".version 8.0\n");
+        ptx.push_str(&format!(".target sm_{}\n", self.target_sm));
+        ptx.push_str(".address_size 64\n\n");
+
+        ptx.push_str(&format!(".visible .entry {}(\n", kernel_name));
+        ptx.push_str("    .param .u64 param_a,\n");
+        ptx.push_str("    .param .u64 param_b,\n");
+        ptx.push_str("    .param .u64 param_c,\n");
+        ptx.push_str("    .param .u32 param_m,\n");
+        ptx.push_str("    .param .u32 param_n,\n");
+        ptx.push_str("    .param .u32 param_k\n");
+        ptx.push_str(")\n");
+        ptx.push_str(".maxntid 32, 1, 1\n");
+        ptx.push_str("{\n");
+        ptx.push_str("    .reg .b32 %a<2>;\n");
+        ptx.push_str("    .reg .b32 %b<1>;\n");
+        ptx.push_str("    .reg .s32 %c<4>;\n");
+        ptx.push_str("    .reg .pred %p<4>;\n");
+        ptx.push_str("    .reg .b32 %r<24>;\n");
+        ptx.push_str("    .reg .b64 %rd<16>;\n\n");
+
+        ptx.push_str("    ld.param.u64 %rd1, [param_a];\n");
+        ptx.push_str("    ld.param.u64 %rd2, [param_b];\n");
+        ptx.push_str("    ld.param.u64 %rd3, [param_c];\n");
+        ptx.push_str("    ld.param.u32 %r1,  [param_m];\n");
+        ptx.push_str("    ld.param.u32 %r2,  [param_n];\n");
+        ptx.push_str("    ld.param.u32 %r3,  [param_k];\n\n");
+
+        for i in 0..4 {
+            ptx.push_str(&format!("    mov.s32 %c{}, 0;\n", i));
+        }
+        ptx.push('\n');
+
+        ptx.push_str("    mov.u32 %r4, %ctaid.y;\n");
+        ptx.push_str("    shl.b32 %r5, %r4, 4;\n");
+        ptx.push_str("    mov.u32 %r6, %ctaid.x;\n");
+        ptx.push_str("    shl.b32 %r7, %r6, 3;\n");
+        ptx.push_str("    mov.u32 %r8, %tid.x;\n");
+        ptx.push_str("    shr.u32 %r9, %r8, 2;\n");
+        ptx.push_str("    and.b32 %r10, %r8, 3;\n");
+        ptx.push_str("    shl.b32 %r11, %r10, 2;\n"); // byte offset within 16-byte packed row (32 s4 elements = 16 bytes)
+        ptx.push_str("    shr.u32 %r22, %r3, 1;\n\n"); // packed_k_bytes = K / 2
+
+        ptx.push_str("    mov.u32 %r12, 0;\n");
+        ptx.push_str("$int4_k_loop:\n");
+        ptx.push_str("    setp.ge.u32 %p1, %r12, %r22;\n");
+        ptx.push_str("    @%p1 bra $int4_k_done;\n\n");
+
+        // Load packed INT4 A fragment (2 x b32 = 8 bytes = 16 s4 elements)
+        ptx.push_str("    add.u32 %r13, %r5, %r9;\n");
+        ptx.push_str("    add.u32 %r14, %r12, %r11;\n");
+        ptx.push_str("    mad.lo.u32 %r15, %r13, %r22, %r14;\n");
+        ptx.push_str("    cvt.u64.u32 %rd4, %r15;\n");
+        ptx.push_str("    add.u64 %rd5, %rd1, %rd4;\n");
+        ptx.push_str("    ld.global.u32 %a0, [%rd5];\n");
+        ptx.push_str("    mul.wide.u32 %rd6, %r22, 8;\n");
+        ptx.push_str("    add.u64 %rd7, %rd5, %rd6;\n");
+        ptx.push_str("    ld.global.u32 %a1, [%rd7];\n\n");
+
+        // Load packed INT4 B fragment (1 x b32 = 4 bytes = 8 s4 elements)
+        ptx.push_str("    add.u32 %r16, %r7, %r9;\n");
+        ptx.push_str("    mad.lo.u32 %r17, %r16, %r22, %r14;\n");
+        ptx.push_str("    cvt.u64.u32 %rd8, %r17;\n");
+        ptx.push_str("    add.u64 %rd9, %rd2, %rd8;\n");
+        ptx.push_str("    ld.global.u32 %b0, [%rd9];\n\n");
+
+        ptx.push_str(
+            "    mma.sync.aligned.m16n8k32.row.col.s32.s4.s4.s32 {%c0, %c1, %c2, %c3}, {%a0, %a1}, {%b0}, {%c0, %c1, %c2, %c3};\n\n",
+        );
+
+        ptx.push_str("    add.u32 %r12, %r12, 16;\n");
+        ptx.push_str("    bra $int4_k_loop;\n");
+        ptx.push_str("$int4_k_done:\n\n");
+
+        ptx.push_str("    shl.b32 %r18, %r10, 1;\n");
+        ptx.push_str("    add.u32 %r19, %r5, %r9;\n");
+        ptx.push_str("    add.u32 %r20, %r7, %r18;\n");
+        ptx.push_str("    mad.lo.u32 %r21, %r19, %r2, %r20;\n");
+        ptx.push_str("    mul.wide.u32 %rd10, %r21, 4;\n");
+        ptx.push_str("    add.u64 %rd11, %rd3, %rd10;\n");
+        ptx.push_str("    st.global.v2.s32 [%rd11], {%c0, %c1};\n");
+        ptx.push_str("    mul.wide.u32 %rd12, %r2, 32;\n");
+        ptx.push_str("    add.u64 %rd11, %rd11, %rd12;\n");
+        ptx.push_str("    st.global.v2.s32 [%rd11], {%c2, %c3};\n\n");
+
+        ptx.push_str("    ret;\n");
+        ptx.push_str("}\n");
+
+        ptx
     }
 
     pub fn emit_async_tensor_core_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
@@ -781,5 +999,42 @@ mod tests {
         assert!(ptx.contains("ex2.approx.f32"));
         assert!(ptx.contains("min.u32 %r9, %r1, %r10"));
         assert!(ptx.contains("div.rn.f32"));
+    }
+
+    #[test]
+    fn test_fp8_tensor_core_ada_hopper() {
+        let cfg = GemmConfig {
+            use_tensor_cores: true,
+            a_dtype: DType::F8E4M3,
+            b_dtype: DType::F8E4M3,
+            ..GemmConfig::default()
+        };
+        let ptx_ada = PtxGenerator::new(89).emit_tensor_core_gemm("gemm_fp8", &cfg);
+        assert!(ptx_ada.contains(".target sm_89"));
+        assert!(ptx_ada.contains("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32"));
+
+        let cfg_e5m2 = GemmConfig {
+            a_dtype: DType::F8E5M2,
+            b_dtype: DType::F8E5M2,
+            ..cfg
+        };
+        let ptx_hopper = PtxGenerator::new(90).emit_tensor_core_gemm("gemm_fp8_e5m2", &cfg_e5m2);
+        assert!(ptx_hopper.contains(".target sm_90"));
+        assert!(ptx_hopper.contains("mma.sync.aligned.m16n8k32.row.col.f32.e5m2.e5m2.f32"));
+    }
+
+    #[test]
+    fn test_int4_tensor_core_ptx() {
+        let cfg = GemmConfig {
+            use_tensor_cores: true,
+            a_dtype: DType::I4,
+            b_dtype: DType::I4,
+            c_dtype: DType::I32,
+            acc_dtype: DType::I32,
+            ..GemmConfig::default()
+        };
+        let ptx = PtxGenerator::new(86).emit_tensor_core_gemm("gemm_int4", &cfg);
+        assert!(ptx.contains(".target sm_86"));
+        assert!(ptx.contains("mma.sync.aligned.m16n8k32.row.col.s32.s4.s4.s32"));
     }
 }

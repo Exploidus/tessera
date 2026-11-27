@@ -6,6 +6,9 @@ pub enum DType {
     F32,
     F16,
     BF16,
+    F8E4M3,
+    F8E5M2,
+    I4,
     I32,
     I64,
     U32,
@@ -13,10 +16,21 @@ pub enum DType {
 }
 
 impl DType {
+    pub const fn size_in_bits(&self) -> usize {
+        match self {
+            DType::I4 => 4,
+            DType::F8E4M3 | DType::F8E5M2 => 8,
+            DType::F16 | DType::BF16 => 16,
+            DType::F32 | DType::I32 | DType::U32 => 32,
+            DType::I64 | DType::U64 => 64,
+        }
+    }
+
     pub const fn size_in_bytes(&self) -> usize {
         match self {
             DType::F32 | DType::I32 | DType::U32 => 4,
             DType::F16 | DType::BF16 => 2,
+            DType::F8E4M3 | DType::F8E5M2 | DType::I4 => 1,
             DType::I64 | DType::U64 => 8,
         }
     }
@@ -26,6 +40,9 @@ impl DType {
             DType::F32 => "f32",
             DType::F16 => "f16",
             DType::BF16 => "bf16",
+            DType::F8E4M3 => "e4m3",
+            DType::F8E5M2 => "e5m2",
+            DType::I4 => "s4",
             DType::I32 => "s32",
             DType::I64 => "s64",
             DType::U32 => "u32",
