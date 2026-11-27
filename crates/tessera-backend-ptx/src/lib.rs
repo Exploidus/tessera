@@ -21,6 +21,141 @@ impl PtxGenerator {
     }
 
     pub fn emit_tensor_core_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
+        if self.target_sm >= 80 {
+            return self.emit_async_tensor_core_gemm(kernel_name, config);
+        }
+        self.emit_sync_tensor_core_gemm(kernel_name, config)
+    }
+
+    pub fn emit_async_tensor_core_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
+        let mut ptx = String::with_capacity(6144);
+        ptx.push_str(".version 8.0\n");
+        ptx.push_str(&format!(".target sm_{}\n", self.target_sm));
+        ptx.push_str(".address_size 64\n\n");
+
+        ptx.push_str(&format!(".visible .entry {}(\n", kernel_name));
+        ptx.push_str("    .param .u64 param_a,\n");
+        ptx.push_str("    .param .u64 param_b,\n");
+        ptx.push_str("    .param .u64 param_c,\n");
+        ptx.push_str("    .param .u32 param_m,\n");
+        ptx.push_str("    .param .u32 param_n,\n");
+        ptx.push_str("    .param .u32 param_k\n");
+        ptx.push_str(")\n");
+        ptx.push_str(".maxntid 32, 1, 1\n");
+        ptx.push_str("{\n");
+        ptx.push_str("    .shared .align 16 .b8 smem[2048];\n\n");
+        ptx.push_str("    .reg .b32 %a<8>;\n");
+        ptx.push_str("    .reg .b32 %b<8>;\n");
+        ptx.push_str("    .reg .f32 %c<8>;\n");
+        ptx.push_str("    .reg .pred %p<8>;\n");
+        ptx.push_str("    .reg .b32 %r<32>;\n");
+        ptx.push_str("    .reg .b64 %rd<24>;\n\n");
+
+        ptx.push_str("    ld.param.u64 %rd1, [param_a];\n");
+        ptx.push_str("    ld.param.u64 %rd2, [param_b];\n");
+        ptx.push_str("    ld.param.u64 %rd3, [param_c];\n");
+        ptx.push_str("    ld.param.u32 %r1,  [param_m];\n");
+        ptx.push_str("    ld.param.u32 %r2,  [param_n];\n");
+        ptx.push_str("    ld.param.u32 %r3,  [param_k];\n\n");
+
+        for i in 0..8 {
+            ptx.push_str(&format!("    mov.f32 %c{}, 0f00000000;\n", i));
+        }
+        ptx.push('\n');
+
+        ptx.push_str("    mov.u32 %r4, %ctaid.y;\n");
+        ptx.push_str("    shl.b32 %r5, %r4, 4;\n");
+        ptx.push_str("    mov.u32 %r6, %ctaid.x;\n");
+        ptx.push_str("    shl.b32 %r7, %r6, 4;\n\n");
+
+        ptx.push_str("    mov.u32 %r12, %tid.x;\n");
+        ptx.push_str("    shr.u32 %r13, %r12, 1;\n");
+        ptx.push_str("    and.b32 %r14, %r12, 1;\n");
+        ptx.push_str("    shl.b32 %r14, %r14, 3;\n");
+        ptx.push_str("    shl.b32 %r15, %r12, 4;\n\n");
+
+        ptx.push_str("    mov.u32 %r16, smem;\n");
+        ptx.push_str("    mov.u64 %rd11, smem;\n");
+        ptx.push_str("    cvta.shared.u64 %rd10, %rd11;\n\n");
+
+        ptx.push_str("    mov.u32 %r8, 0;\n");
+        ptx.push_str("    setp.ge.u32 %p1, %r8, %r3;\n");
+        ptx.push_str("    @%p1 bra $wmma_async_done;\n\n");
+
+        ptx.push_str("    mov.u32 %r17, 0;\n");
+        Self::emit_cp_async_stage(&mut ptx, "%r8", "%r17");
+        ptx.push_str("    cp.async.commit_group;\n\n");
+
+        ptx.push_str("$wmma_async_loop:\n");
+        ptx.push_str("    add.u32 %r18, %r8, 16;\n");
+        ptx.push_str("    setp.lt.u32 %p2, %r18, %r3;\n");
+        ptx.push_str("    @!%p2 bra $wmma_async_last_wait;\n\n");
+
+        ptx.push_str("    xor.b32 %r19, %r17, 1;\n");
+        Self::emit_cp_async_stage(&mut ptx, "%r18", "%r19");
+        ptx.push_str("    cp.async.commit_group;\n");
+        ptx.push_str("    cp.async.wait_group 1;\n");
+        ptx.push_str("    bra $wmma_async_compute;\n\n");
+
+        ptx.push_str("$wmma_async_last_wait:\n");
+        ptx.push_str("    cp.async.wait_group 0;\n\n");
+
+        ptx.push_str("$wmma_async_compute:\n");
+        ptx.push_str("    bar.sync 0;\n");
+        ptx.push_str("    shl.b32 %r20, %r17, 9;\n");
+        ptx.push_str("    cvt.u64.u32 %rd12, %r20;\n");
+        ptx.push_str("    add.u64 %rd13, %rd10, %rd12;\n");
+        ptx.push_str("    add.u64 %rd14, %rd13, 1024;\n\n");
+
+        ptx.push_str("    wmma.load.a.sync.aligned.row.m16n16k16.f16 {%a0, %a1, %a2, %a3, %a4, %a5, %a6, %a7}, [%rd13], 16;\n");
+        ptx.push_str("    wmma.load.b.sync.aligned.row.m16n16k16.f16 {%b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7}, [%rd14], 16;\n");
+        ptx.push_str("    wmma.mma.sync.aligned.row.row.m16n16k16.f32.f32 {%c0, %c1, %c2, %c3, %c4, %c5, %c6, %c7}, {%a0, %a1, %a2, %a3, %a4, %a5, %a6, %a7}, {%b0, %b1, %b2, %b3, %b4, %b5, %b6, %b7}, {%c0, %c1, %c2, %c3, %c4, %c5, %c6, %c7};\n\n");
+
+        ptx.push_str("    mov.u32 %r8, %r18;\n");
+        ptx.push_str("    xor.b32 %r17, %r17, 1;\n");
+        ptx.push_str("    setp.lt.u32 %p3, %r8, %r3;\n");
+        ptx.push_str("    @%p3 bra $wmma_async_loop;\n\n");
+
+        ptx.push_str("$wmma_async_done:\n");
+        if config.activation == Activation::ReLU {
+            for i in 0..8 {
+                ptx.push_str(&format!("    setp.lt.f32 %p4, %c{}, 0f00000000;\n", i));
+                ptx.push_str(&format!("    @%p4 mov.f32 %c{}, 0f00000000;\n", i));
+            }
+        }
+
+        ptx.push_str("    mad.lo.u32 %r25, %r5, %r2, %r7;\n");
+        ptx.push_str("    mul.wide.u32 %rd15, %r25, 4;\n");
+        ptx.push_str("    add.u64 %rd16, %rd3, %rd15;\n");
+        ptx.push_str("    wmma.store.d.sync.aligned.row.m16n16k16.f32 [%rd16], {%c0, %c1, %c2, %c3, %c4, %c5, %c6, %c7}, %r2;\n\n");
+        ptx.push_str("    ret;\n");
+        ptx.push_str("}\n");
+
+        ptx
+    }
+
+    fn emit_cp_async_stage(ptx: &mut String, k_reg: &str, stage_reg: &str) {
+        ptx.push_str(&format!("    shl.b32 %r21, {}, 9;\n", stage_reg));
+        ptx.push_str("    add.u32 %r22, %r16, %r21;\n");
+        ptx.push_str("    add.u32 %r22, %r22, %r15;\n");
+
+        ptx.push_str("    add.u32 %r23, %r5, %r13;\n");
+        ptx.push_str(&format!("    add.u32 %r24, {}, %r14;\n", k_reg));
+        ptx.push_str("    mad.lo.u32 %r26, %r23, %r3, %r24;\n");
+        ptx.push_str("    mul.wide.u32 %rd4, %r26, 2;\n");
+        ptx.push_str("    add.u64 %rd5, %rd1, %rd4;\n");
+        ptx.push_str("    cp.async.ca.shared.global [%r22], [%rd5], 16;\n");
+
+        ptx.push_str("    add.u32 %r27, %r22, 1024;\n");
+        ptx.push_str(&format!("    add.u32 %r28, {}, %r13;\n", k_reg));
+        ptx.push_str("    add.u32 %r29, %r7, %r14;\n");
+        ptx.push_str("    mad.lo.u32 %r30, %r28, %r2, %r29;\n");
+        ptx.push_str("    mul.wide.u32 %rd6, %r30, 2;\n");
+        ptx.push_str("    add.u64 %rd7, %rd2, %rd6;\n");
+        ptx.push_str("    cp.async.ca.shared.global [%r27], [%rd7], 16;\n");
+    }
+
+    fn emit_sync_tensor_core_gemm(&self, kernel_name: &str, config: &GemmConfig) -> String {
         let mut ptx = String::with_capacity(4096);
         ptx.push_str(".version 8.0\n");
         ptx.push_str(&format!(".target sm_{}\n", self.target_sm));
@@ -483,5 +618,40 @@ impl PtxGenerator {
         ptx.push_str("}\n");
 
         ptx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_async_cp_pipeline_emitted_for_sm80_plus() {
+        let gen = PtxGenerator::new(86);
+        let cfg = GemmConfig {
+            use_tensor_cores: true,
+            ..GemmConfig::default()
+        };
+        let ptx = gen.emit_tensor_core_gemm("gemm_async", &cfg);
+        assert!(ptx.contains(".target sm_86"));
+        assert!(ptx.contains(".shared .align 16 .b8 smem[2048]"));
+        assert!(ptx.contains("cp.async.ca.shared.global"));
+        assert!(ptx.contains("cp.async.commit_group"));
+        assert!(ptx.contains("cp.async.wait_group 1"));
+        assert!(ptx.contains("cp.async.wait_group 0"));
+        assert!(ptx.contains("wmma.mma.sync.aligned.row.row.m16n16k16.f32.f32"));
+    }
+
+    #[test]
+    fn test_sync_fallback_for_pre_ampere() {
+        let gen = PtxGenerator::new(75);
+        let cfg = GemmConfig {
+            use_tensor_cores: true,
+            ..GemmConfig::default()
+        };
+        let ptx = gen.emit_tensor_core_gemm("gemm_sync", &cfg);
+        assert!(ptx.contains(".target sm_75"));
+        assert!(!ptx.contains("cp.async"));
+        assert!(ptx.contains("wmma.mma.sync.aligned.row.row.m16n16k16.f32.f32"));
     }
 }

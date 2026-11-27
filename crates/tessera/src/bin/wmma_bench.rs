@@ -204,7 +204,41 @@ $k_done:
         cpu_c_0 += val_a * val_b;
     }
     println!(
-        "C[0, 0] GPU: {:.4}, CPU: {:.4}, diff: {:.6}",
+        "C[0, 0] GPU (sync): {:.4}, CPU: {:.4}, diff: {:.6}",
+        h_c[0],
+        cpu_c_0,
+        (h_c[0] - cpu_c_0).abs()
+    );
+
+    let ptx_gen = tessera::backend_ptx::PtxGenerator::new(86);
+    let async_cfg = tessera::ir::GemmConfig {
+        use_tensor_cores: true,
+        ..tessera::ir::GemmConfig::default()
+    };
+    let async_ptx = ptx_gen.emit_tensor_core_gemm("wmma_async_16x16", &async_cfg);
+    let async_mod = gpu.load_ptx(&async_ptx)?;
+    let async_kernel = async_mod.get_kernel("wmma_async_16x16")?;
+
+    unsafe {
+        async_kernel.launch(grid_dim, block_dim, 0, &mut args)?;
+    }
+    gpu.sync()?;
+
+    let start_async = Instant::now();
+    for _ in 0..iters {
+        unsafe {
+            async_kernel.launch(grid_dim, block_dim, 0, &mut args)?;
+        }
+    }
+    gpu.sync()?;
+    let async_duration = start_async.elapsed() / iters;
+    let async_tflops = (total_flops / async_duration.as_secs_f64()) / 1e12;
+
+    d_c.download(&mut h_c)?;
+    println!("Async cp.async Latency: {:.3?}", async_duration);
+    println!("Async cp.async Throughput: {:.2} TFLOPS", async_tflops);
+    println!(
+        "C[0, 0] GPU (cp.async): {:.4}, CPU: {:.4}, diff: {:.6}",
         h_c[0],
         cpu_c_0,
         (h_c[0] - cpu_c_0).abs()
