@@ -8,4 +8,4 @@ repository.workspace = true
 description = "NVIDIA PTX assembly code generator for Tessera IR"
 
 [dependencies]
-tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
+tessera-ir = { path = "../tessera-ir", version = "0.2.0" }

@@ -13,11 +13,11 @@ name = "tessera"
 path = "src/lib.rs"
 
 [dependencies]
-tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
-tessera-backend-ptx = { path = "../tessera-backend-ptx", version = "0.1.0" }
-tessera-backend-spirv = { path = "../tessera-backend-spirv", version = "0.1.0" }
-tessera-backend-metal = { path = "../tessera-backend-metal", version = "0.1.0" }
-tessera-runtime = { path = "../tessera-runtime", version = "0.1.0" }
+tessera-ir = { path = "../tessera-ir", version = "0.2.0" }
+tessera-backend-ptx = { path = "../tessera-backend-ptx", version = "0.2.0" }
+tessera-backend-spirv = { path = "../tessera-backend-spirv", version = "0.2.0" }
+tessera-backend-metal = { path = "../tessera-backend-metal", version = "0.2.0" }
+tessera-runtime = { path = "../tessera-runtime", version = "0.2.0" }
 
 [[bin]]
 name = "tessera"

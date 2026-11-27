@@ -8,4 +8,4 @@ repository.workspace = true
 description = "Apple Silicon Metal Shading Language (MSL) code generator for Tessera"
 
 [dependencies]
-tessera-ir = { path = "../tessera-ir", version = "0.1.0" }
+tessera-ir = { path = "../tessera-ir", version = "0.2.0" }

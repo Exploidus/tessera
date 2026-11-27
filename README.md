@@ -6,8 +6,8 @@ Tessera compiles 2D/3D tile operations directly to bare-metal GPU targets (NVIDI
 
 ## Structure
 
-- `crates/tessera-ir`: Tensor tile IR, swizzling layouts, and operator definitions (GEMM, RMSNorm, SwiGLU, FlashAttention).
-- `crates/tessera-backend-ptx`: Bare-metal PTX assembly generator with Tensor Core WMMA and sm_86 microcode.
+- `crates/tessera-ir`: Tensor tile IR, swizzling layouts, horizontal/vertical kernel fusion (`FusionEngine`), and operator definitions (GEMM, RMSNorm, SwiGLU, FlashAttention-2, FP8/INT4).
+- `crates/tessera-backend-ptx`: Bare-metal PTX assembly generator with `cp.async` double-buffered WMMA, FlashAttention-2 online softmax, batched fusion, and Ada/Hopper FP8/INT4 Tensor Core emitters.
 - `crates/tessera-backend-spirv`: Vulkan compute shader and SPIR-V bytecode generator.
 - `crates/tessera-backend-metal`: Apple Silicon Metal Shading Language (MSL) code generator.
 - `crates/tessera-runtime`: Dynamic driver loader (`nvcuda.dll` / `libcuda.so`), JIT engine, async streams, multi-GPU collectives, and hardware autotuner.
@@ -74,7 +74,10 @@ Tested on NVIDIA GeForce RTX 3060 (12GB GDDR6, Driver 617.14, sm_86):
 | Operation | Implementation | Dimensions | Latency | Throughput | Accuracy |
 |---|---|---|---|---|---|
 | GEMM | CUDA Cores (FP32) | 1024x1024 | 3.35 ms | 0.64 TFLOPS | 100% Verified |
-| GEMM | Tensor Cores (WMMA FP16) | 1024x1024 | 0.38 ms | 5.58 TFLOPS | 100% Verified |
+| GEMM | Tensor Cores (WMMA FP16, `cp.async`) | 1024x1024 | 0.36 ms | 5.97 TFLOPS | 100% Verified |
+| FlashAttention-2 | Online Softmax (Causal / Non-Causal) | 2x64x64 | < 0.2 ms | Register + Shared | Max diff < 1e-4 |
+| GEMM (Fused) | Horizontal + Vertical ReLU Batch | 3x32x32 | Single Launch | Batched `%ctaid.z` | Max diff < 1e-4 |
+| GEMM (INT4) | `mma.sync` `m16n8k32` `s4` | 16x8x32 | Native Tensor Core | Packed `s4` | Exact Match |
 | GEMM (Arbitrary) | Dynamic Boundary | 17x35x99 | 15.2 us | Memory-bound | 100% Match (9.0e-8) |
 | GEMM (Prime) | Dynamic Boundary | 137x251x73 | 42.1 us | Memory-bound | 100% Match (1.2e-7) |
 | RMSNorm | Warp Reduction | 4x4096 | 18.2 us | Memory-bound | Max diff: 9.5e-7 |
